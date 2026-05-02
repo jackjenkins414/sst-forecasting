@@ -74,9 +74,23 @@ Full 20-year OISST dataset downloaded, processed, and verified on local machine.
 5. Arrays/metadata: shapes, dtypes, H=81, W=121, all split attributes, climatology centre cell 26.68°C, land mask 80.5%
 6. SSTWindowDataset: 269 windows, x=(90,1,81,121), y=(7,81,121), float32, no NaN, stride-1 overlap, DataLoader batch shapes correct
 
+### Remaining Setonix GPU quota — 3 May 2026
+
+~1 KSU remaining on Setonix for this quarter. Billing on GPU partition: ~96 SU/GCD-hour (1 GCD = half an MI250X card, minimum useful allocation). 1 KSU ≈ **10 hours of single-GCD time**.
+
+Training estimates at our scale (5,138 windows, bfloat16, 1 GCD):
+- LSTM / Transformer, bs=32: ~3–5 min/epoch → 50 epochs ≈ 2.5–4 h → fits in 1 KSU with room to spare
+- Large batch (bs=64) roughly halves epoch time → even more headroom
+
+**Plan for the remaining 1 KSU:**
+- Reserve for E1 MVE runs only (LSTM seed 1 + Transformer seed 1 — ~6–8 h total)
+- Do NOT use GPU quota on E0 baselines — they are pure numpy/CPU and run on Raijin
+- Use `--gres=gpu:1` (single GCD) to minimise billing burn
+- If a run approaches 8 h wall-time, checkpoint and resume rather than extend
+
 ### Next steps (priority order)
-1. **E0 baselines** (P0 — due 10 May 2026): implement `src/sst_forecasting/models/baselines.py` (persistence, climatological mean, linear AR); evaluate at h ∈ {1, 7, 30} on test set; save to `experiments/results/baselines.json`.
-2. **E1 MVE** (P0 — due 11 May 2026): LSTM vs Transformer at h=7, L=90; reproducible on Raijin CPU (or Setonix if quota refreshes).
+1. **E0 baselines** (P0 — due 10 May 2026): implement `src/sst_forecasting/models/baselines.py` (persistence, climatological mean, linear AR); evaluate at h ∈ {1, 7, 30} on test set; save to `experiments/results/baselines.json`. Run on Raijin CPU — zero GPU quota used.
+2. **E1 MVE** (P0 — due 11 May 2026): LSTM vs Transformer at h=7, L=90, bs=64, single GCD on Setonix. Budget: ~6–8 KSU for both seeds combined — use the remaining ~1 KSU for seed 1 of LSTM; seed 2+ once quota refreshes or Raijin CPU fallback.
 3. **Raijin SLURM scripts**: add `scripts/slurm/raijin_preprocess.sbatch` and `scripts/slurm/raijin_train_cpu.sbatch`.
 
 ## [0.1.0] — 2026-04-23
