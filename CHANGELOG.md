@@ -34,11 +34,21 @@ All notable changes to this project will be documented here.
 - `validate_pipeline.py` — fixed `UnboundLocalError` for `ocean` variable (moved `land_mask` load outside the multi-year guard block); fixed norm-std skip condition to count unique years actually present in the Zarr time array rather than the split date range.
 
 ### Compute notes — 2 May 2026
-GPU service units on both Pawsey Setonix (AMD MI250X) and NCI Gadi (NVIDIA A100) are running low for this quarter. **E0 baselines and the full data download/preprocessing pipeline must therefore be validated on Raijin (CPU cluster) first.** Raijin is AMD EPYC CPU-only; no GPU, no ROCm/CUDA. Impact on workflow:
+GPU service units on both Pawsey Setonix (AMD MI250X) and NCI Gadi (NVIDIA A100) are running low for this quarter. **E0 baselines and the full data download/preprocessing pipeline must therefore be validated on Raijin (CPU cluster) first.**
+
+Raijin node specs (5 nodes available):
+- CPU: Intel Xeon E5-2670 — 2 sockets × 8 cores × 2 threads = **32 logical CPUs per node**
+- NUMA: 2 nodes (node0: CPUs 0–7, 16–23; node1: CPUs 8–15, 24–31)
+- Total usable: 5 nodes × 16 physical cores = **80 physical cores / 160 logical CPUs**
+- No GPU, no ROCm/CUDA
+
+Impact on workflow:
 - `scripts/validate_pipeline.py` already runs CPU-only and passes.
 - `configs/training/debug.yaml` uses `device: cpu` — use this config on Raijin.
 - `torch.compile` must be disabled on Raijin (`compile: false` in config).
-- SLURM scripts for Raijin will differ from Setonix: PBS → SLURM, `module load pytorch/...` path TBD.
+- Use `torch.set_num_threads(16)` (physical cores per node) and pin workers with `numactl --cpunodebind=0` / `--cpunodebind=1` to avoid NUMA cross-traffic.
+- DataLoader `num_workers` ≤ 8 per NUMA node recommended.
+- SLURM scripts for Raijin will target `--ntasks-per-node=1 --cpus-per-task=32`.
 - Once GPU quota is refreshed or a small allocation is approved, E1–E3 GPU runs on Setonix proceed as planned.
 
 ### Next steps (priority order)
