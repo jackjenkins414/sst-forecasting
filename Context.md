@@ -121,6 +121,21 @@ Pawsey Supercomputing Centre, AMD MI250X GPUs (2 GCDs per card, 8 GCDs per node)
 - NCCL → RCCL on ROCm; `NCCL_DEBUG=INFO` only when debugging.
 - `gpu-dev` partition for jobs <1 h; `gpu` for production.
 
+### Raijin CPU cluster (fallback — use when Setonix/Gadi GPU quota is exhausted)
+
+5 nodes, Intel Xeon E5-2670 per node:
+- 2 sockets × 8 cores × 2 threads = **32 logical CPUs per node**
+- 2 NUMA nodes (node0: CPUs 0–7, 16–23; node1: CPUs 8–15, 24–31)
+- Total: 80 physical / 160 logical CPUs across the allocation
+
+**Key gotchas:**
+- CPU-only (`device: cpu`); use `configs/training/debug.yaml` as the base config.
+- Disable `torch.compile` (`compile: false`).
+- Set `torch.set_num_threads(16)` (physical cores per node) to avoid hyperthreading contention.
+- Pin processes to NUMA nodes with `numactl --cpunodebind=N` to avoid cross-socket memory traffic.
+- DataLoader `num_workers` ≤ 8 per NUMA node.
+- SLURM: `--ntasks-per-node=1 --cpus-per-task=32`.
+
 **Filesystem on Setonix:**
 
 | Path | Use |
