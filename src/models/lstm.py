@@ -6,9 +6,31 @@ Please note that this model was made purely as a proof-of-concept for the
 Week 9 meeting, and is unlikely to be viable as an assignment model.
 
 Inspiration taken from:
-    N/A
+    lab06.ipynb (Isaac Jaensch & the COMP3242 Teaching Team)
 
 Written by Isaac Jaensch (u7262835), ANU, 2026. 
 """
 
-# TODO: Create the outline of an LSTM model, and some basic skeleton code.
+import torch
+import torch.nn as nn
+
+class SST_LSTM(nn.Module):
+
+    # TODO: Consider adding num_layers as an input. 
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super.__init__()
+
+        self.H = hidden_dim
+
+        self.lstm = nn.LSTM(
+            input_size = input_dim,
+            hidden_size = hidden_dim, 
+            num_layers = 1,
+            batch_first = True
+        )
+
+        self.fc = nn.Linear(hidden_dim, output_dim)
+
+
+
+    
