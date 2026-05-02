@@ -98,3 +98,30 @@ class SST_LSTM(nn.Module):
             print(f"Epoch {epoch+1}/{num_epochs} | Training Loss: {epoch_loss:.6f}")
 
         return losses
+    
+
+if __name__ == "__main__":
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    training_loader = ... # TODO: Figure this out.
+
+    lstm_model = SST_LSTM(
+        input_dim=1,
+        hidden_dim=64,
+        output_dim=1,
+        num_layers=1
+    )
+
+    # Training
+    optimiser = torch.optim.Adam(lstm_model.parameters(), lr=1e-3)
+    criterion = nn.MSELoss() #TODO: Replace with a RMSE Loss. 
+    losses = SST_LSTM.train_model(
+        lstm_model,
+        optimiser,
+        criterion,
+        training_loader,
+        num_epochs=10,
+        device=device
+    )
+
+    print("Training complete.")
