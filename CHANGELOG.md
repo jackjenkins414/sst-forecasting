@@ -51,12 +51,33 @@ Impact on workflow:
 - SLURM scripts for Raijin will target `--ntasks-per-node=1 --cpus-per-task=32`.
 - Once GPU quota is refreshed or a small allocation is approved, E1–E3 GPU runs on Setonix proceed as planned.
 
+### Data pipeline completed — 3 May 2026 ✓
+
+Full 20-year OISST dataset downloaded, processed, and verified on local machine.
+
+**Download** (`python scripts/download_oisst.py --output-dir data/raw`):
+- 20 NetCDF files, 1981–2000, ~270 MB total on disk
+- 2 ERDDAP read timeouts auto-recovered via retry (1983, 1991) — no data lost
+- Total wall time: ~63 min (dominated by ERDDAP server-side prep per year)
+
+**Zarr build** (`python scripts/build_zarr.py`):
+- Completed in 21 seconds
+- T=7,062 timesteps | H=81 | W=121 | train=5,234 days
+- norm_mean=0.00000, norm_std=0.70023 (training years only, no leakage)
+- Store size: 564 MB on disk (`data/processed/oisst_coralsea.zarr`)
+
+**Validation** (`python scripts/validate_pipeline.py`) — all 6 stages passed ✓:
+1. ERDDAP HEAD request → HTTP 200
+2. 1982 download → 13.7 MB, non-empty .nc
+3. Raw NetCDF: sst variable, lat/lon in crop window, 365 timesteps, SST 17.6–33.9°C, 80.5% ocean cells
+4. Zarr build: store created, all 8 arrays present
+5. Arrays/metadata: shapes, dtypes, H=81, W=121, all split attributes, climatology centre cell 26.68°C, land mask 80.5%
+6. SSTWindowDataset: 269 windows, x=(90,1,81,121), y=(7,81,121), float32, no NaN, stride-1 overlap, DataLoader batch shapes correct
+
 ### Next steps (priority order)
 1. **E0 baselines** (P0 — due 10 May 2026): implement `src/sst_forecasting/models/baselines.py` (persistence, climatological mean, linear AR); evaluate at h ∈ {1, 7, 30} on test set; save to `experiments/results/baselines.json`.
-2. **Full data download**: `python scripts/download_oisst.py --output-dir data/raw` (~280 MB, 20 NetCDF files).
-3. **Full Zarr build**: `python scripts/build_zarr.py` then re-run `validate_pipeline.py` on the complete store.
-4. **E1 MVE** (P0 — due 11 May 2026): LSTM vs Transformer at h=7, L=90; reproducible on Setonix (or Raijin CPU as fallback).
-5. **Raijin SLURM scripts**: add `scripts/slurm/raijin_preprocess.sbatch` and `scripts/slurm/raijin_train_cpu.sbatch`.
+2. **E1 MVE** (P0 — due 11 May 2026): LSTM vs Transformer at h=7, L=90; reproducible on Raijin CPU (or Setonix if quota refreshes).
+3. **Raijin SLURM scripts**: add `scripts/slurm/raijin_preprocess.sbatch` and `scripts/slurm/raijin_train_cpu.sbatch`.
 
 ## [0.1.0] — 2026-04-23
 
