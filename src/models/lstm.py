@@ -17,6 +17,7 @@ import numpy as np
 
 class SST_LSTM(nn.Module):
 
+    # Initialises the model.
     def __init__(self, input_dim, hidden_dim, output_dim, num_layers):
         super.__init__()
 
@@ -32,6 +33,7 @@ class SST_LSTM(nn.Module):
 
         self.fc = nn.Linear(hidden_dim, output_dim)
 
+    # Completes a forward pass through the model. 
     def forward(self, x, init_hidden):
         out, hidden = self.lstm(x, init_hidden)
         predictions = self.fc(out)
