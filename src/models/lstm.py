@@ -16,20 +16,22 @@ import torch.nn as nn
 
 class SST_LSTM(nn.Module):
 
-    # TODO: Consider adding num_layers as an input. 
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers):
         super.__init__()
 
         self.H = hidden_dim
+        self.num_layers = num_layers
 
         self.lstm = nn.LSTM(
             input_size = input_dim,
             hidden_size = hidden_dim, 
-            num_layers = 1,
+            num_layers = num_layers,
             batch_first = True
         )
 
         self.fc = nn.Linear(hidden_dim, output_dim)
+
+
 
 
 
