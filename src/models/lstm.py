@@ -19,7 +19,7 @@ class SST_LSTM(nn.Module):
 
     # Initialises the model.
     def __init__(self, input_dim, hidden_dim, output_dim, num_layers):
-        super.__init__()
+        super().__init__()
 
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
@@ -44,3 +44,5 @@ class SST_LSTM(nn.Module):
         h0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim, device=device)
         c0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim, device=device)
         return (h0, c0)
+
+
