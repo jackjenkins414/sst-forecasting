@@ -46,3 +46,55 @@ class SST_LSTM(nn.Module):
         return (h0, c0)
 
 
+    # Trains the model across a provided number of epochs. 
+    # TODO: Check what adaptations need to be made to suit the data structure. 
+    def train_model(model, optimiser, criterion, training_loader, num_epochs, device):
+        model.to(device)
+        # Initialise losses. 
+        losses = []
+
+        # Train the model for x epochs. 
+        for epoch in range(num_epochs):
+            model.train()
+            epoch_loss = 0.0
+
+            for x, y in training_loader:
+
+                x = x.to(device)
+                y = y.to(device)
+
+                batch_size = x.size(0)
+
+                # Initialise the hidden state for the epoch. 
+                hidden = model.init_hidden(batch_size, device)
+
+                # Complete a forward pass.
+                predictions, _ = model(x, hidden)
+
+                # Handle a forecasting shape mismatch.
+                # Source: Copilot
+                if predictions.shape != y.shape: 
+                    predictions = predictions[:, -1, :]
+                    y = y[:, -1, :]
+
+                # Compute the loss. 
+                loss = criterion(predictions, y)
+
+                # Backpropagation. 
+                optimiser.zero_grad()
+                loss.backward()
+
+                # Step
+                optimiser.step()
+
+                # Add the loss. 
+                epoch_loss += loss.item()
+
+            # Determine the epoch loss. 
+            epoch_loss /= len(training_loader)
+            losses.append(epoch_loss)
+
+            # Print the loss for this epoch. 
+            print(f"Epoch {epoch+1}/{num_epochs} | Training Loss: {epoch_loss:.6f}")
+
+        return losses
