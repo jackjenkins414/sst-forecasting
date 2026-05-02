@@ -1,0 +1,35 @@
+# configs/training/debug.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# Debug / local-CPU training profile.
+# Runs 1 epoch with a small batch on CPU — for smoke-testing before Setonix.
+# ─────────────────────────────────────────────────────────────────────────────
+
+seed: 42
+
+max_epochs: 1
+batch_size: 4
+num_workers: 0         # keep single-process for easy debugging
+pin_memory: false
+
+# Truncate each split to at most this many windows (0 = no truncation)
+max_train_windows: 64
+max_val_windows: 16
+
+# Learning rate / optimiser
+lr: 1.0e-3
+weight_decay: 1.0e-4
+grad_clip: 1.0
+
+# Mixed precision
+use_amp: false         # disable on CPU; enable on GPU (bfloat16 on MI250X)
+amp_dtype: bfloat16
+
+# torch.compile (disable on ROCm if uneven support)
+compile: false
+
+# Early stopping
+patience: 5
+min_delta: 1.0e-4
+
+# Logging
+log_every_n_steps: 10

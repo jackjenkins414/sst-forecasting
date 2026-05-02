@@ -205,3 +205,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# ── SST Forecasting: data (re-downloadable from NOAA ERDDAP) ──────────────────
+data/raw/
+data/processed/
+# Allow the README that documents how to reproduce the data
+!data/README.md

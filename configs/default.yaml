@@ -1,0 +1,24 @@
+# configs/default.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# Root Hydra config — composed by `sstf train +experiment=<name>`.
+# ─────────────────────────────────────────────────────────────────────────────
+
+defaults:
+  - data: oisst_coralsea
+  - training: default
+  - _self_
+
+# ── Filesystem paths ──────────────────────────────────────────────────────────
+paths:
+  raw_dir:       data/raw
+  processed_dir: data/processed
+  results_dir:   experiments/results
+  ckpt_dir:      experiments/checkpoints
+  log_dir:       experiments/logs
+
+# ── Hydra output ─────────────────────────────────────────────────────────────
+hydra:
+  run:
+    dir: ${paths.results_dir}/${now:%Y-%m-%d_%H-%M-%S}
+  job:
+    chdir: false

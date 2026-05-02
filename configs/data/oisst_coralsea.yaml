@@ -1,0 +1,27 @@
+# configs/data/oisst_coralsea.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# NOAA OISST v2.1 — Coral Sea crop
+# Region: [140°E–170°E] × [25°S–5°S]
+# Period: 1981-09-01 → 2000-12-31 (train+val+test combined raw)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_target_: sst_forecasting.data.dataset.SSTWindowDataset
+
+zarr_path: ${paths.processed_dir}/oisst_coralsea.zarr
+
+# Spatial bounding box (used by download / preprocess scripts)
+lat_min: -25.0
+lat_max: -5.0
+lon_min: 140.0
+lon_max: 170.0
+
+# Source
+erddap_dataset_id: ncdcOisst21Agg_LonPM180
+erddap_variable: sst
+download_start_year: 1981
+download_end_year: 2000
+
+# Dataset windows (overridden per experiment)
+context_len: 90
+horizon: 7
+fill_land: 0.0
