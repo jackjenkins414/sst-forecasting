@@ -31,6 +31,14 @@ class SST_LSTM(nn.Module):
 
         self.fc = nn.Linear(hidden_dim, output_dim)
 
+    def forward(self, x, init_hidden):
+        out, hidden = self.lstm(x, init_hidden)
+        predictions = self.fc(out)
+        return predictions, hidden
+    
+    def init_hidden(self, batch_size, device):
+        
+
 
 
 
