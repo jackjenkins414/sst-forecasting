@@ -88,10 +88,59 @@ Training estimates at our scale (5,138 windows, bfloat16, 1 GCD):
 - Use `--gres=gpu:1` (single GCD) to minimise billing burn
 - If a run approaches 8 h wall-time, checkpoint and resume rather than extend
 
+### Raijin setup — ordered steps (3 May 2026)
+
+**On Raijin hpc-01 login node:**
+
+```bash
+# 1. Clone repo from GitHub (code only — data is gitignored)
+git clone https://github.com/jackjenkins414/sst-forecasting.git
+cd sst-forecasting
+git checkout ayush
+
+# 2. Create Python venv and install deps (CPU-only torch wheel, much smaller)
+python3 -m venv .venv && source .venv/bin/activate
+pip install --upgrade pip
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements.txt
+pip install -e .
+
+# 3. Smoke test — confirm 23/23 tests pass
+pytest -q
+
+# 4. Copy the Zarr store from local Mac (run this on your Mac, not Raijin)
+#    Raw NetCDF not needed — only the processed store is required for training
+scp -r data/processed/oisst_coralsea.zarr \
+    <user>@hpc-01:~/sst-forecasting/data/processed/oisst_coralsea.zarr
+
+# 5. Verify Zarr loaded correctly on Raijin
+python3 - <<'EOF'
+import zarr
+root = zarr.open("data/processed/oisst_coralsea.zarr", mode="r")
+print("T =", root["sst"].shape[0], "H =", root["sst"].shape[1], "W =", root["sst"].shape[2])
+print("norm_std =", root.attrs["norm_std"])
+EOF
+# Expected: T = 7062  H = 81  W = 121  norm_std = 0.70023
+
+# 6. Run E0 baselines (once baselines.py is implemented)
+python3 scripts/run_baselines.py \
+    --zarr-path data/processed/oisst_coralsea.zarr \
+    --horizons 1 7 30 \
+    --output experiments/results/baselines.json
+```
+
+**Raijin CPU settings to apply before any training:**
+- `device: cpu`, `compile: false` in config
+- `torch.set_num_threads(16)` (physical cores per node, avoids hyperthreading overhead)
+- `numactl --cpunodebind=0` or `--cpunodebind=1` per process to avoid NUMA cross-traffic
+- DataLoader `num_workers=8` max per NUMA node
+- SLURM: `--ntasks-per-node=1 --cpus-per-task=32`
+- No `wandb` online mode — run `wandb offline` if wandb is used
+
 ### Next steps (priority order)
 1. **E0 baselines** (P0 — due 10 May 2026): implement `src/sst_forecasting/models/baselines.py` (persistence, climatological mean, linear AR); evaluate at h ∈ {1, 7, 30} on test set; save to `experiments/results/baselines.json`. Run on Raijin CPU — zero GPU quota used.
-2. **E1 MVE** (P0 — due 11 May 2026): LSTM vs Transformer at h=7, L=90, bs=64, single GCD on Setonix. Budget: ~6–8 KSU for both seeds combined — use the remaining ~1 KSU for seed 1 of LSTM; seed 2+ once quota refreshes or Raijin CPU fallback.
-3. **Raijin SLURM scripts**: add `scripts/slurm/raijin_preprocess.sbatch` and `scripts/slurm/raijin_train_cpu.sbatch`.
+2. **E1 MVE** (P0 — due 11 May 2026): LSTM vs Transformer at h=7, L=90, bs=64, single GCD on Setonix. Use remaining ~1 KSU for seed 1 of LSTM; seed 2+ on Raijin CPU fallback.
+3. **Raijin SLURM scripts**: add `scripts/slurm/raijin_baselines.sbatch` and `scripts/slurm/raijin_train_cpu.sbatch`.
 
 ## [0.1.0] — 2026-04-23
 
