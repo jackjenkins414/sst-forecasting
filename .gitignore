@@ -77,6 +77,19 @@ target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+__pycache__/
+*.py[cod]
+
+# Model checkpoints — too large for git
+*.pt
+*.pth
+
+# Slurm noise
+experiments/results/test_conda.*
+
+# Raw data — already covered below but explicit
+data/raw/
+data/processed/
 
 # IPython
 profile_default/

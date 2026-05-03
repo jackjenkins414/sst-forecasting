@@ -1,0 +1,40 @@
+args:
+  batch_size: 4
+  context_len: 90
+  dropout: 0.1
+  grad_clip: 1.0
+  horizon: 7
+  lr: 0.001
+  lr_factor: 0.5
+  lr_patience: 5
+  lstm_d_spatial: 64
+  lstm_hidden: 128
+  lstm_layers: 2
+  max_epochs: 2
+  max_train_windows: 64
+  max_val_windows: 16
+  model: transformer
+  num_workers: 0
+  output_dir: experiments/results/e1_smoke_transformer
+  patience: 10
+  seed: 42
+  tf_d_model: 128
+  tf_ffn_dim: 256
+  tf_layers: 4
+  tf_nhead: 8
+  weight_decay: 0.0001
+  zarr_path: data/processed/oisst_coralsea.zarr
+best_epoch: 1
+best_val_rmse_c: 0.814969643429745
+git_sha: 7fa29a7e3409b80fa33b5cfa3aa4e7e24d54d21b
+hostname: hpc-01
+model: transformer
+n_params: 10634879
+numpy: 2.4.4
+platform: Linux-6.8.0-107-generic-x86_64-with-glibc2.39
+python: 3.12.13 | packaged by Anaconda, Inc. | (main, Mar 19 2026, 20:20:58) [GCC
+  14.3.0]
+slurm_job_id: none
+test_rmse_mean_c: 0.8627202340534755
+torch: !!python/object/new:torch.torch_version.TorchVersion
+- 2.11.0+cpu

@@ -1,0 +1,16 @@
+# configs/lstm.yaml
+# LSTM model hyperparameters for E1 MVE (SpatialFlatLSTM)
+
+model: lstm
+
+# Spatial encoder projection width
+d_spatial: 64
+
+# LSTM configuration
+hidden_size: 128
+num_layers: 2
+dropout: 0.1
+
+# Input / output dims (set by data config)
+context_len: 90
+horizon: 7

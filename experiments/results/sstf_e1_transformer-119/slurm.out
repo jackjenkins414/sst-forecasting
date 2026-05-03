@@ -1,0 +1,69 @@
+[raijin_e1] MODEL=transformer  HORIZON=7  CONTEXT_LEN=90
+[raijin_e1] OMP=16  MKL=16
+[raijin_e1] numactl --interleave=all
+[raijin_e1] OUT_DIR=/home/hpc/sst-forecasting/experiments/results/sstf_e1_transformer-119
+=== provenance 2026-05-03T09:02:18+00:00 ===
+host:      hpc-03
+slurm:     job=119  node=hpc-03
+git sha:   7fa29a7e3409b80fa33b5cfa3aa4e7e24d54d21b
+python:    /home/hpc/miniconda3/envs/sst/bin/python (Python 3.12.13)
+torch:     2.11.0+cpu
+numpy:     2.4.4
+model:     transformer
+horizon:   7
+context:   90
+===
+[train_e1] Grid: H=81, W=121, ocean cells=7890
+[train_e1] norm_mean=0.00000, norm_std=0.70023
+[train_e1] preloading zarr sst_norm into RAM ...
+[train_e1] zarr preloaded: 277 MB
+[train_e1] train batches=322, val batches=63
+Intel oneMKL WARNING: Support of Intel(R) Advanced Vector Extensions (Intel(R) AVX) enabled only processors has been deprecated. Intel oneAPI Math Kernel Library will use Intel(R) Streaming SIMD Extensions 4.2 (Intel(R) SSE4.2) instructions instead.
+[train_e1] model=transformer, params=10,634,879
+[epoch 001/50] train RMSE=0.6285°C  val RMSE=0.7403°C  lr=1.00e-03  ep=111.2s  total=111s
+[epoch 002/50] train RMSE=0.5923°C  val RMSE=0.7418°C  lr=1.00e-03  ep=108.4s  total=223s
+[epoch 003/50] train RMSE=0.5758°C  val RMSE=0.7214°C  lr=1.00e-03  ep=95.9s  total=319s
+[epoch 004/50] train RMSE=0.5675°C  val RMSE=0.7344°C  lr=1.00e-03  ep=106.3s  total=429s
+[epoch 005/50] train RMSE=0.5598°C  val RMSE=0.7475°C  lr=1.00e-03  ep=104.3s  total=534s
+[epoch 006/50] train RMSE=0.5562°C  val RMSE=0.7130°C  lr=1.00e-03  ep=114.9s  total=648s
+[epoch 007/50] train RMSE=0.5511°C  val RMSE=0.7459°C  lr=1.00e-03  ep=126.5s  total=779s
+[epoch 008/50] train RMSE=0.5473°C  val RMSE=0.7366°C  lr=1.00e-03  ep=114.6s  total=893s
+[epoch 009/50] train RMSE=0.5448°C  val RMSE=0.7559°C  lr=1.00e-03  ep=114.8s  total=1008s
+[epoch 010/50] train RMSE=0.5395°C  val RMSE=0.7653°C  lr=1.00e-03  ep=115.1s  total=1123s
+[epoch 011/50] train RMSE=0.5391°C  val RMSE=0.7331°C  lr=1.00e-03  ep=114.6s  total=1238s
+[epoch 012/50] train RMSE=0.5331°C  val RMSE=0.7578°C  lr=5.00e-04  ep=114.5s  total=1352s
+[epoch 013/50] train RMSE=0.5199°C  val RMSE=0.7571°C  lr=5.00e-04  ep=114.3s  total=1467s
+[epoch 014/50] train RMSE=0.5160°C  val RMSE=0.7811°C  lr=5.00e-04  ep=114.3s  total=1581s
+[epoch 015/50] train RMSE=0.5126°C  val RMSE=0.7713°C  lr=5.00e-04  ep=114.6s  total=1695s
+[epoch 016/50] train RMSE=0.5108°C  val RMSE=0.7834°C  lr=5.00e-04  ep=114.6s  total=1810s
+[train_e1] early stopping at epoch 16 (patience=10)
+[train_e1] training done in 1813.8s
+[train_e1] loading best model for test evaluation ...
+[train_e1] test RMSE (°C) per step: ['0.6955', '0.6967', '0.6997', '0.7003', '0.6999', '0.7012', '0.7028']
+[train_e1] test RMSE mean over 7 steps: 0.6994°C
+[train_e1] metrics written to /home/hpc/sst-forecasting/experiments/results/sstf_e1_transformer-119/metrics.json
+[train_e1] run.yaml written to /home/hpc/sst-forecasting/experiments/results/sstf_e1_transformer-119/run.yaml
+	Command being timed: "numactl --interleave=all python scripts/train_e1.py --model transformer --horizon 7 --context-len 90 --zarr-path /home/hpc/sst-forecasting/data/processed/oisst_coralsea.zarr --output-dir /home/hpc/sst-forecasting/experiments/results/sstf_e1_transformer-119 --max-epochs 50 --batch-size 16 --num-workers 0 --patience 10 --seed 42"
+	User time (seconds): 20135.54
+	System time (seconds): 1218.23
+	Percent of CPU this job got: 1155%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 30:47.41
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 1799644
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 73
+	Minor (reclaiming a frame) page faults: 217726315
+	Voluntary context switches: 1844926
+	Involuntary context switches: 39943
+	Swaps: 0
+	File system inputs: 5008
+	File system outputs: 334720
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
+[raijin_e1] done. Results in /home/hpc/sst-forecasting/experiments/results/sstf_e1_transformer-119

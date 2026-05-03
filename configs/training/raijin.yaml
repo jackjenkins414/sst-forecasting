@@ -1,0 +1,39 @@
+# configs/training/raijin.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# Raijin CPU training profile (Intel Xeon E5-2670, Sandy Bridge, no GPU).
+# Used for E1 MVE and all subsequent experiments on the CPU cluster.
+# ─────────────────────────────────────────────────────────────────────────────
+
+seed: 42
+
+max_epochs: 50
+batch_size: 16
+num_workers: 0       # safest on NFS — avoids zarr multi-process contention
+pin_memory: false    # no GPU, pin_memory is a no-op
+
+# Truncate datasets (0 = use all)
+max_train_windows: 0
+max_val_windows: 0
+
+# Optimiser
+lr: 1.0e-3
+weight_decay: 1.0e-4
+grad_clip: 1.0
+
+# LR scheduler (ReduceLROnPlateau)
+lr_patience: 5
+lr_factor: 0.5
+
+# Early stopping
+patience: 10
+min_delta: 1.0e-4
+
+# Mixed precision — always disabled on CPU
+use_amp: false
+amp_dtype: bfloat16
+
+# torch.compile — disabled for AVX1-only Sandy Bridge
+compile: false
+
+# Thread count matched to physical cores (16 per node, set by OMP_NUM_THREADS)
+# torch.set_num_threads is called in the training script using OMP_NUM_THREADS

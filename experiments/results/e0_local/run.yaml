@@ -1,0 +1,31 @@
+git_sha: 7fa29a7e3409b80fa33b5cfa3aa4e7e24d54d21b
+hostname: hpc-01
+platform: Linux-6.8.0-107-generic-x86_64-with-glibc2.39
+python: 3.12.13
+numpy: 2.4.4
+pandas: 3.0.2
+zarr: 2.18.7
+slurm_job_id: ''
+slurm_node: ''
+omp_threads: '16'
+mkl_threads: '16'
+args:
+  zarr_path: data/processed/oisst_coralsea.zarr
+  output_dir: experiments/results/e0_local
+  horizons:
+  - 1
+  - 7
+  - 30
+  ar_context: 30
+  bootstrap: 1000
+  seed: 42
+splits:
+  train:
+  - '1981-09-01'
+  - '1995-12-31'
+  val:
+  - '1996-01-01'
+  - '1998-12-31'
+  test:
+  - '1999-01-01'
+  - '2000-12-31'

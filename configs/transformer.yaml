@@ -1,0 +1,17 @@
+# configs/transformer.yaml
+# Transformer model hyperparameters for E1 MVE (SpatialFlatTransformer)
+
+model: transformer
+
+# Spatial encoder + Transformer model dimension
+d_model: 128
+
+# Attention
+nhead: 8
+num_encoder_layers: 4
+dim_feedforward: 256
+dropout: 0.1
+
+# Input / output dims (set by data config)
+context_len: 90
+horizon: 7

@@ -1,0 +1,67 @@
+=== provenance dump 2026-05-03T07:07:18+00:00 ===
+host:       hpc-02
+slurm:      job=116 node=hpc-02
+user:       hpc
+cwd:        /home/hpc/sst-forecasting
+git sha:    7fa29a7e3409b80fa33b5cfa3aa4e7e24d54d21b
+git status:
+ M CHANGELOG.md
+ M configs/lstm.yaml
+ M requirements.txt
+?? configs/training/raijin.yaml
+?? configs/transformer.yaml
+?? experiments/results/e0_local/
+?? experiments/results/e1_smoke_lstm/
+?? experiments/results/e1_smoke_transformer/
+?? experiments/results/latest_baselines
+?? experiments/results/sstf_baselines-112/
+?? experiments/results/sstf_baselines-115/
+?? experiments/results/sstf_baselines-116/
+?? experiments/results/test_conda.err
+?? experiments/results/test_conda.out
+?? scripts/run_baselines.py
+?? scripts/run_e0_local.sh
+?? scripts/slurm/
+?? scripts/train_e1.py
+?? src/sst_forecasting/models/
+?? src/sst_forecasting/utils/
+?? tests/test_baselines.py
+?? tests/test_models_forward.py
+python:     /home/hpc/miniconda3/envs/sst/bin/python (Python 3.12.13)
+torch:      2.11.0+cpu
+numpy:      2.4.4
+OMP/MKL:    OMP=16 MKL=16 KMP_AFFINITY=
+===
+[provenance] git=7fa29a7e  host=hpc-02  OMP=16  MKL=16
+[data] loading data/processed/oisst_coralsea.zarr …
+[data] sst=(7062, 81, 121) time=[1981-09-01...2000-12-31] loaded in 10.3s
+
+========== horizon h=1 ==========
+  train: 5235 days   test: 731 days
+  forecast origins after L=30 guard: 730
+  LinearAR fit: 15.28s
+  predict (batched): 1.05s
+  persistence  RMSE=0.3170 °C [0.3121, 0.3220]  ACC=0.908
+  climatology  RMSE=0.7946 °C [0.7833, 0.8061]  ACC=nan  SS=-1.507
+    linear_ar  RMSE=0.2993 °C [0.2945, 0.3042]  ACC=0.916  SS=+0.056
+
+========== horizon h=7 ==========
+  train: 5235 days   test: 731 days
+  forecast origins after L=30 guard: 724
+  LinearAR fit: 15.25s
+  predict (batched): 1.04s
+  persistence  RMSE=0.6959 °C [0.6872, 0.7055]  ACC=0.567
+  climatology  RMSE=0.7933 °C [0.7820, 0.8068]  ACC=nan  SS=-0.140
+    linear_ar  RMSE=0.6292 °C [0.6186, 0.6402]  ACC=0.587  SS=+0.096
+
+========== horizon h=30 ==========
+  train: 5235 days   test: 731 days
+  forecast origins after L=30 guard: 701
+  LinearAR fit: 15.17s
+  predict (batched): 1.01s
+  persistence  RMSE=1.0781 °C [1.0590, 1.0967]  ACC=0.255
+  climatology  RMSE=0.7884 °C [0.7766, 0.8012]  ACC=nan  SS=+0.269
+    linear_ar  RMSE=0.9245 °C [0.9065, 0.9408]  ACC=0.237  SS=+0.142
+
+[done] wrote /home/hpc/sst-forecasting/experiments/results/sstf_baselines-116/baselines.json
+[2026-05-03T07:08:36+00:00] baseline job complete → /home/hpc/sst-forecasting/experiments/results/sstf_baselines-116
