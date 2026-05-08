@@ -211,3 +211,7 @@ data/raw/*
 data/processed/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
+
+# macOS Finder metadata
+.DS_Store
+**/.DS_Store
