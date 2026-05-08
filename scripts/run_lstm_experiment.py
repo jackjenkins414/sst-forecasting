@@ -8,98 +8,87 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import xarray as xr
+import zarr
 
-from src.data.preprocess import (
-    create_ocean_mask,
-    flatten_to_ocean_points,
-    standardise_sst,
-)
-from src.data.windowing import create_sliding_windows
-from src.data.splitting import chronological_train_val_test_split
 from src.data.dataloaders import create_dataloaders
 
-from src.models.lstm import SimpleSstLSTM
+from src.models.lstm import StackedSpatialLSTM
 
 from src.training.train import train_model
 from src.training.evaluate import predict
 
 from src.baselines.persistence import persistence_forecast
-from src.utils.metrics import rmse, mae, skill_score
+from src.utils.metrics import rmse, rmse_per_step, mae, skill_score
 
 
 # Configuration
 
-DATA_PATH = PROJECT_ROOT / "data/processed/oisst_australia_2025_lowres.nc"
+ZARR_PATH = PROJECT_ROOT / "data/processed/oisst_coralsea.zarr"
 
-INPUT_LENGTH = 30
-FORECAST_HORIZON = 1
+CONTEXT_LEN = 90
+HORIZON = 7
 BATCH_SIZE = 16
+
+D_SPATIAL = 64
 HIDDEN_SIZE = 128
-NUM_LAYERS = 1
-NUM_EPOCHS = 10
+NUM_LAYERS = 2
+DROPOUT = 0.1
+
+NUM_EPOCHS = 8
 LEARNING_RATE = 1e-3
+WEIGHT_DECAY = 1e-4
+GRAD_CLIP = 1.0
 
 RANDOM_SEED = 42
 
 
 def main():
-    # Seeds 
+    # Seeds
     np.random.seed(RANDOM_SEED)
     torch.manual_seed(RANDOM_SEED)
 
+    # Load metadata from Zarr (norm stats, land mask, grid shape)
+    root = zarr.open_group(str(ZARR_PATH), mode="r")
+    norm_mean = float(root.attrs["norm_mean"])
+    norm_std = float(root.attrs["norm_std"])
+    land_mask_np = np.array(root["land_mask"])  # (H, W) bool, True = ocean
+    H, W = land_mask_np.shape
 
-    # Load data
-    ds_lowres = xr.open_dataset(DATA_PATH)
-    sst = ds_lowres["sst"]
+    print(f"Grid: H={H} W={W} ocean cells={int(land_mask_np.sum())}")
+    print(f"norm_mean={norm_mean:.5f} norm_std={norm_std:.5f}")
 
-
-    # Preprocess
-    ocean_mask = create_ocean_mask(sst)
-    sst_ocean = flatten_to_ocean_points(sst, ocean_mask)
-    sst_scaled, sst_mean, sst_std = standardise_sst(sst_ocean)
-
-    # Create supervised samples
-    X, y = create_sliding_windows(
-        sst_scaled,
-        input_length=INPUT_LENGTH,
-        forecast_horizon=FORECAST_HORIZON,
-    )
-
-    X_train, y_train, X_val, y_val, X_test, y_test = chronological_train_val_test_split(
-        X,
-        y,
-        train_fraction=0.70,
-        val_fraction=0.15,
-    )
-
+    # Build dataloaders
     train_loader, val_loader, test_loader = create_dataloaders(
-        X_train,
-        y_train,
-        X_val,
-        y_val,
-        X_test,
-        y_test,
+        zarr_path=ZARR_PATH,
+        context_len=CONTEXT_LEN,
+        horizon=HORIZON,
         batch_size=BATCH_SIZE,
     )
 
-
     # Model
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    land_mask_torch = torch.from_numpy(land_mask_np).to(device)
 
-    input_size = X_train.shape[2]
-    output_size = y_train.shape[1]
-
-    model = SimpleSstLSTM(
-        input_size=input_size,
+    model = StackedSpatialLSTM(
+        H=H,
+        W=W,
+        context_len=CONTEXT_LEN,
+        horizon=HORIZON,
+        d_spatial=D_SPATIAL,
         hidden_size=HIDDEN_SIZE,
         num_layers=NUM_LAYERS,
-        output_size=output_size,
+        dropout=DROPOUT,
     ).to(device)
 
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    n_params = sum(p.numel() for p in model.parameters())
+    print(f"Model parameters: {n_params:,}")
 
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(
+        model.parameters(),
+        lr=LEARNING_RATE,
+        weight_decay=WEIGHT_DECAY,
+    )
 
     # Train
     train_losses, val_losses = train_model(
@@ -110,56 +99,77 @@ def main():
         optimizer=optimizer,
         device=device,
         num_epochs=NUM_EPOCHS,
+        land_mask=land_mask_torch,
+        grad_clip=GRAD_CLIP,
     )
 
-    # Evaluate LSTM
-    test_preds_scaled, test_targets_scaled = predict(
+    # Evaluate LSTM on test set
+    test_preds_norm, test_targets_norm = predict(
         model=model,
         data_loader=test_loader,
         device=device,
     )
 
-    test_preds_celsius = test_preds_scaled * sst_std + sst_mean
-    test_targets_celsius = test_targets_scaled * sst_std + sst_mean
+    # Denormalise to °C
+    test_preds_celsius = test_preds_norm * norm_std + norm_mean
+    test_targets_celsius = test_targets_norm * norm_std + norm_mean
 
-    lstm_rmse = rmse(test_preds_celsius, test_targets_celsius)
-    lstm_mae = mae(test_preds_celsius, test_targets_celsius)
+    lstm_rmse_per_step = rmse_per_step(
+        test_preds_celsius, test_targets_celsius, land_mask=land_mask_np,
+    )
+    lstm_rmse_mean = float(lstm_rmse_per_step.mean())
+    lstm_mae = mae(test_preds_celsius, test_targets_celsius, land_mask=land_mask_np)
 
     # Persistence baseline
     print("Evaluating persistence baseline...")
-    persistence_preds_scaled = persistence_forecast(X_test)
+    test_X_norm = []
+    test_y_norm = []
+    for batch_X, batch_y in test_loader:
+        test_X_norm.append(batch_X.numpy())
+        test_y_norm.append(batch_y.numpy())
+    test_X_norm = np.concatenate(test_X_norm, axis=0)
+    test_y_norm = np.concatenate(test_y_norm, axis=0)
 
-    persistence_preds_celsius = persistence_preds_scaled * sst_std + sst_mean
-    persistence_targets_celsius = y_test * sst_std + sst_mean
+    persistence_preds_norm = persistence_forecast(test_X_norm, horizon=HORIZON)
 
-    persistence_rmse = rmse(persistence_preds_celsius, persistence_targets_celsius)
-    persistence_mae = mae(persistence_preds_celsius, persistence_targets_celsius)
+    persistence_preds_celsius = persistence_preds_norm * norm_std + norm_mean
+    persistence_targets_celsius = test_y_norm * norm_std + norm_mean
+
+    persistence_rmse_per_step = rmse_per_step(
+        persistence_preds_celsius, persistence_targets_celsius, land_mask=land_mask_np,
+    )
+    persistence_rmse_mean = float(persistence_rmse_per_step.mean())
+    persistence_mae = mae(
+        persistence_preds_celsius, persistence_targets_celsius, land_mask=land_mask_np,
+    )
 
     # Skill scores
-    rmse_skill = skill_score(lstm_rmse, persistence_rmse)
+    rmse_skill = skill_score(lstm_rmse_mean, persistence_rmse_mean)
     mae_skill = skill_score(lstm_mae, persistence_mae)
 
     # Summary
     print("\nLSTM Experiment Summary")
     print("-----------------------")
-    print(f"Input length: {INPUT_LENGTH}")
-    print(f"Forecast horizon: {FORECAST_HORIZON}")
-    print(f"X shape: {X.shape}")
-    print(f"y shape: {y.shape}")
-    print(f"Train/Val/Test: {len(X_train)} / {len(X_val)} / {len(X_test)}")
+    print(f"Context length: {CONTEXT_LEN}")
+    print(f"Forecast horizon: {HORIZON}")
+    print(f"Train/Val/Test batches: {len(train_loader)} / {len(val_loader)} / {len(test_loader)}")
     print(f"Device: {device}")
 
-    print("\nLSTM:")
-    print(f"RMSE: {lstm_rmse:.4f} °C")
-    print(f"MAE:  {lstm_mae:.4f} °C")
+    print("\nLSTM (test, °C):")
+    for h, r in enumerate(lstm_rmse_per_step, start=1):
+        print(f"  RMSE day {h}: {r:.4f}")
+    print(f"  RMSE mean:  {lstm_rmse_mean:.4f}")
+    print(f"  MAE  mean:  {lstm_mae:.4f}")
 
-    print("\nPersistence:")
-    print(f"RMSE: {persistence_rmse:.4f} °C")
-    print(f"MAE:  {persistence_mae:.4f} °C")
+    print("\nPersistence (test, °C):")
+    for h, r in enumerate(persistence_rmse_per_step, start=1):
+        print(f"  RMSE day {h}: {r:.4f}")
+    print(f"  RMSE mean:  {persistence_rmse_mean:.4f}")
+    print(f"  MAE  mean:  {persistence_mae:.4f}")
 
     print("\nSkill vs persistence:")
-    print(f"RMSE skill: {rmse_skill:.4f}")
-    print(f"MAE skill:  {mae_skill:.4f}")
+    print(f"  RMSE skill: {rmse_skill:.4f}")
+    print(f"  MAE  skill: {mae_skill:.4f}")
 
 
 if __name__ == "__main__":

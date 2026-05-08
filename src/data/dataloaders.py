@@ -1,44 +1,46 @@
+from pathlib import Path
+
 from torch.utils.data import DataLoader
 
 from src.data.dataset import SstWindowDataset
 
 
 def create_dataloaders(
-    X_train,
-    y_train,
-    X_val,
-    y_val,
-    X_test,
-    y_test,
+    zarr_path: str | Path,
+    context_len: int = 90,
+    horizon: int = 7,
     batch_size: int = 16,
 ):
     """
-    Create PyTorch DataLoaders for train, validation, and test sets.
+    Create PyTorch DataLoaders for the train, validation, and test splits.
 
-    Training data is shuffled after the chronological split.
+    Training data is shuffled.
     Validation and test data are not shuffled.
+
+    Parameters
+    ----------
+    zarr_path:
+        Path to the processed Zarr store containing normalised SST anomalies
+        and split-date metadata.
+    context_len:
+        Number of past timesteps fed to the model.
+    horizon:
+        Number of future timesteps to predict.
+    batch_size:
+        Number of samples per batch.
+
+    Returns
+    -------
+    train_loader, val_loader, test_loader
     """
+    # Prev version built 6 numpy arrays, change it so the Dataset consturcts
+    # itself directly from the Zarr store 
+    train_dataset = SstWindowDataset(zarr_path, "train", context_len, horizon)
+    val_dataset = SstWindowDataset(zarr_path, "val", context_len, horizon)
+    test_dataset = SstWindowDataset(zarr_path, "test", context_len, horizon)
 
-    train_dataset = SstWindowDataset(X_train, y_train)
-    val_dataset = SstWindowDataset(X_val, y_val)
-    test_dataset = SstWindowDataset(X_test, y_test)
-
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-    )
-
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-    )
-
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-    )
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     return train_loader, val_loader, test_loader

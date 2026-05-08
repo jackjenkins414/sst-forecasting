@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 
 
 def train_model(
@@ -9,36 +10,49 @@ def train_model(
     optimizer,
     device,
     num_epochs: int = 10,
+    land_mask: torch.Tensor | None = None,
+    grad_clip: float | None = None,
 ):
     """
     Train a PyTorch model and evaluate validation loss after each epoch.
+
+    If land_mask is given, the loss is computed only over ocean cells.
+    The mask should be a boolean tensor of shape:
+        H x W
+    with True = ocean. It is broadcast over the batch and horizon axes.
+
+    If grad_clip is given, gradients are clipped to that max norm
+    before each optimiser step.
 
     Returns
     -------
     train_losses:
         List of average training losses, one per epoch.
-
     val_losses:
         List of average validation losses, one per epoch.
     """
-
     train_losses = []
     val_losses = []
 
     for epoch in range(num_epochs):
         model.train()
         train_loss = 0.0
-
         for batch_X, batch_y in train_loader:
             batch_X = batch_X.to(device)
             batch_y = batch_y.to(device)
 
             optimizer.zero_grad()
-
             preds = model(batch_X)
-            loss = criterion(preds, batch_y)
+
+            if land_mask is not None:
+                mask = land_mask.expand_as(preds)
+                loss = criterion(preds[mask], batch_y[mask])
+            else:
+                loss = criterion(preds, batch_y)
 
             loss.backward()
+            if grad_clip is not None:
+                nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
             optimizer.step()
 
             train_loss += loss.item() * batch_X.size(0)
@@ -47,14 +61,17 @@ def train_model(
 
         model.eval()
         val_loss = 0.0
-
         with torch.no_grad():
             for batch_X, batch_y in val_loader:
                 batch_X = batch_X.to(device)
                 batch_y = batch_y.to(device)
-
                 preds = model(batch_X)
-                loss = criterion(preds, batch_y)
+
+                if land_mask is not None:
+                    mask = land_mask.expand_as(preds)
+                    loss = criterion(preds[mask], batch_y[mask])
+                else:
+                    loss = criterion(preds, batch_y)
 
                 val_loss += loss.item() * batch_X.size(0)
 
