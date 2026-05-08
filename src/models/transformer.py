@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import math 
 
+# This is our input embedding 
 class SpatialProjection(nn.Module):
     """Project flattened SST grid to d_model.
 
@@ -136,3 +137,53 @@ class PositionalEncoding(nn.Module):
 
         # Dropout on the combined embedding+position signal; regularisation as per paper
         return self.dropout(x)
+    
+
+class LayerNormalisation(nn.Module):
+
+    def __init__(self, d_model: int, eps: float = 10**-6) -> None:
+        """Build the layer norm.
+
+        Parameters
+        ----------
+        d_model : int
+            Working dimension of the Transformer. The learnable scale and
+            shift each have one entry per dimension, so the layer can amplify some
+            feature dims and suppress others.
+        eps : float
+            Small constant added to the denominator for numerical stability,
+            preventing division by zero when std is tiny.
+        """
+        super().__init__()
+        # Avoid division blow up 
+        self.eps = eps
+
+        # Learnable scale, one per feature dim; initialised to start as the identity
+        self.alpha = nn.Parameter(torch.ones(d_model))    # per-dim scale
+
+        # Learnable shift, one per feature dim; initialised to 0 so the layer starts as identity
+        self.bias = nn.Parameter(torch.zeros(d_model))    # per-dim shift
+
+    def forward(self, x):
+        """Normalise across the last dim, then apply learned scale and shift.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input tensor, shape (B, L, d_model). Comes from any sublayer
+            that produces d_model-dim vectors per timestep.
+
+        Returns
+        -------
+        torch.Tensor
+            Same shape (B, L, d_model), normalised per timestep across the feature 
+            dim, then rescaled and shifted.
+        """
+        mean = x.mean(dim=-1, keepdim=True)
+
+        # Each layer normalised by its own stats- not batch stats (hence layer norm not batch norm)
+        std = x.std(dim=-1, keepdim=True)
+
+        # standard layernorm formula
+        return self.alpha * (x - mean) / (std + self.eps) + self.bias
+
