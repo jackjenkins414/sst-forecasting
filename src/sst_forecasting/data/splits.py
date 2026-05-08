@@ -1,13 +1,19 @@
 """Temporal train / val / test split definitions.
 
-All date boundaries are from PLAN.md §4.4. Climatology and normalisation
-statistics are computed from the training period only to prevent leakage.
+Chronological hold-out split with 3-month gap buffers between boundaries.
+The gaps prevent the model benefiting from day-to-day SST autocorrelation at
+split edges. Normalisation statistics are computed from training data only.
 
-Splits
-------
-train : 1981-09-01 → 1995-12-31  (~14 years)
-val   : 1996-01-01 → 1998-12-31  ( 3 years, model selection / early stopping)
-test  : 1999-01-01 → 2000-12-31  ( 2 years, frozen until final evaluation)
+Splits (active data)
+--------------------
+train : 1981-09-01 → 1995-12-31  (~14 years, 5 234 days)
+val   : 1996-04-01 → 1998-09-30  (~2.5 years — gap Jan–Mar 1996 excluded)
+test  : 1999-01-01 → 2000-12-31  ( 2 years  — gap Oct–Dec 1998 excluded)
+
+Gap buffers (excluded from all splits)
+---------------------------------------
+train→val : 1996-01-01 → 1996-03-31  (3 months)
+val→test  : 1998-10-01 → 1998-12-31  (3 months, implicit from boundary dates)
 """
 
 from __future__ import annotations
@@ -17,10 +23,13 @@ import pandas as pd
 
 # ---------------------------------------------------------------------------
 # Canonical split boundaries
+# 3-month buffers are baked into val start/end so no extra logic is needed.
 # ---------------------------------------------------------------------------
+GAP_MONTHS = 3  # months excluded at each split boundary
+
 SPLITS: dict[str, tuple[str, str]] = {
     "train": ("1981-09-01", "1995-12-31"),
-    "val":   ("1996-01-01", "1998-12-31"),
+    "val":   ("1996-04-01", "1998-09-30"),
     "test":  ("1999-01-01", "2000-12-31"),
 }
 
