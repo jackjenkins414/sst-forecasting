@@ -14,6 +14,7 @@ def train_model(
     grad_clip: float | None = None,
     scheduler=None,
     early_stop_patience: int | None = None,
+    epoch_callback=None,
 ):
     """
     Train a PyTorch model and evaluate validation loss after each epoch.
@@ -96,6 +97,10 @@ def train_model(
             f"| Train Loss: {train_loss:.6f} "
             f"| Val Loss: {val_loss:.6f}{improved}"
         )
+
+        if epoch_callback is not None and epoch_callback(epoch, val_loss):
+            print(f"Trial pruned at epoch {epoch + 1}")
+            break
 
         if early_stop_patience is not None and epochs_no_improve >= early_stop_patience:
             print(f"Early stopping at epoch {epoch + 1} (no improvement for {early_stop_patience} epochs)")

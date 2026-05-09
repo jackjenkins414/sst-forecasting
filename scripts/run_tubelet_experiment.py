@@ -2,10 +2,14 @@
 Tubelet Transformer experiment — train, evaluate, and visualise results.
 
 Mirrors the structure of run_lstm_experiment.py so results are directly
-comparable. Figures are saved to experiments/results/.
+comparable. Each run is saved to experiments/results/run_YYYYMMDD_HHMMSS/
+with config.json, metrics.json, a checkpoint, and a summary figure.
 """
 
+import argparse
+import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -13,7 +17,6 @@ sys.path.append(str(PROJECT_ROOT))
 
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -21,6 +24,7 @@ import zarr
 
 from src.data.dataloaders import create_dataloaders
 from src.models.tubelet_transformer import TubeletTransformer
+from src.training.losses import AnomalyWeightedMSE
 from src.training.train import train_model
 from src.training.evaluate import predict
 from src.baselines.persistence import persistence_forecast
@@ -43,15 +47,18 @@ N_HEADS  = 4
 N_LAYERS = 4
 D_FF     = 512
 T_S      = 5    # days per tubelet  -> T' = 90/5 = 18 time tokens
-P_H      = 9    # patch height      -> 81/9  = 9 patch rows
+P_H      = 3    # patch height      -> 81/3  = 27 patch rows
 P_W      = 11   # patch width       -> 121/11 = 11 patch cols
 DROPOUT  = 0.1
 
-NUM_EPOCHS          = 50   # upper bound — early stopping will trigger well before this
-EARLY_STOP_PATIENCE = 7    # stop if val loss hasn't improved for 7 epochs
+NUM_EPOCHS          = 50
+EARLY_STOP_PATIENCE = 5
 LEARNING_RATE       = 1e-3
 WEIGHT_DECAY        = 1e-4
 GRAD_CLIP           = 1.0
+LR_FACTOR           = 0.5    # multiply LR by this when plateau detected
+LR_PATIENCE         = 5      # epochs without improvement before reducing LR
+ANOMALY_ALPHA       = 1.0    # anomaly-weighted loss strength (0 = standard MSE)
 
 RANDOM_SEED = 42
 
@@ -66,16 +73,14 @@ def plot_results(
     spatial_rmse,
     sample_pred, sample_truth,
     lat, lon,
-    norm_std,
+    horizon,
     save_path,
 ):
     """Six-panel summary figure saved to save_path."""
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-
     fig, axes = plt.subplots(2, 3, figsize=(18, 10))
     fig.suptitle("Tubelet Transformer — SST Forecasting (Coral Sea)", fontsize=14)
 
-    days = np.arange(1, HORIZON + 1)
+    days = np.arange(1, horizon + 1)
     extent = [lon[0], lon[-1], lat[0], lat[-1]]  # [W, E, S, N]
 
     # --- [0,0] Training curves ---
@@ -106,7 +111,7 @@ def plot_results(
     ax.set_ylabel("Skill score vs persistence")
     ax.set_title("Skill Score (positive = better than persistence)")
 
-    # --- [1,0] Spatial RMSE heatmap (mean over all test samples & steps) ---
+    # --- [1,0] Spatial RMSE heatmap ---
     ax = axes[1, 0]
     im = ax.imshow(
         spatial_rmse,
@@ -119,10 +124,9 @@ def plot_results(
     ax.set_ylabel("Latitude (°N)")
     ax.set_title("Spatial RMSE — mean over test set & all steps")
 
-    # --- [1,1] Sample prediction at day 7 (denormalised °C anomaly) ---
-    # Pick the test sample with the largest mean absolute target anomaly
+    # --- [1,1] Sample prediction at day HORIZON ---
     vmax = float(np.nanmax(np.abs(sample_pred)))
-    vmax = max(vmax, 0.5)  # floor so colorbar is readable on near-zero samples
+    vmax = max(vmax, 0.5)
 
     ax = axes[1, 1]
     im = ax.imshow(
@@ -132,7 +136,7 @@ def plot_results(
     fig.colorbar(im, ax=ax, label="SST anomaly (°C)")
     ax.set_xlabel("Longitude (°E)")
     ax.set_ylabel("Latitude (°N)")
-    ax.set_title(f"Predicted anomaly — day {HORIZON}")
+    ax.set_title(f"Predicted anomaly — day {horizon}")
 
     # --- [1,2] Corresponding ground truth ---
     ax = axes[1, 2]
@@ -143,7 +147,7 @@ def plot_results(
     fig.colorbar(im, ax=ax, label="SST anomaly (°C)")
     ax.set_xlabel("Longitude (°E)")
     ax.set_ylabel("Latitude (°N)")
-    ax.set_title(f"Ground truth anomaly — day {HORIZON}")
+    ax.set_title(f"Ground truth anomaly — day {horizon}")
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
@@ -155,11 +159,67 @@ def plot_results(
 # Main
 # ---------------------------------------------------------------------------
 
-def main():
-    np.random.seed(RANDOM_SEED)
-    torch.manual_seed(RANDOM_SEED)
+def parse_args():
+    p = argparse.ArgumentParser(description="Run a Tubelet Transformer experiment.")
+    p.add_argument("--context_len",         type=int,   default=CONTEXT_LEN)
+    p.add_argument("--horizon",             type=int,   default=HORIZON)
+    p.add_argument("--batch_size",          type=int,   default=BATCH_SIZE)
+    p.add_argument("--d_model",             type=int,   default=D_MODEL)
+    p.add_argument("--n_heads",             type=int,   default=N_HEADS)
+    p.add_argument("--n_layers",            type=int,   default=N_LAYERS)
+    p.add_argument("--d_ff",                type=int,   default=D_FF)
+    p.add_argument("--t_s",                 type=int,   default=T_S)
+    p.add_argument("--p_h",                 type=int,   default=P_H)
+    p.add_argument("--p_w",                 type=int,   default=P_W)
+    p.add_argument("--dropout",             type=float, default=DROPOUT)
+    p.add_argument("--num_epochs",          type=int,   default=NUM_EPOCHS)
+    p.add_argument("--early_stop_patience", type=int,   default=EARLY_STOP_PATIENCE)
+    p.add_argument("--lr",                  type=float, default=LEARNING_RATE)
+    p.add_argument("--weight_decay",        type=float, default=WEIGHT_DECAY)
+    p.add_argument("--grad_clip",           type=float, default=GRAD_CLIP)
+    p.add_argument("--lr_factor",           type=float, default=LR_FACTOR)
+    p.add_argument("--lr_patience",         type=int,   default=LR_PATIENCE)
+    p.add_argument("--seed",                type=int,   default=RANDOM_SEED)
+    p.add_argument("--alpha",               type=float, default=ANOMALY_ALPHA)
+    return p.parse_args()
 
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+def main():
+    args = parse_args()
+
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+
+    # Each run gets its own timestamped directory
+    run_dir = RESULTS_DIR / datetime.now().strftime("run_%Y%m%d_%H%M%S")
+    run_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Run directory: {run_dir}")
+
+    # Persist all hyperparameters immediately so the run is self-documented
+    config = {
+        "context_len":         args.context_len,
+        "horizon":             args.horizon,
+        "batch_size":          args.batch_size,
+        "d_model":             args.d_model,
+        "n_heads":             args.n_heads,
+        "n_layers":            args.n_layers,
+        "d_ff":                args.d_ff,
+        "t_s":                 args.t_s,
+        "p_h":                 args.p_h,
+        "p_w":                 args.p_w,
+        "dropout":             args.dropout,
+        "num_epochs":          args.num_epochs,
+        "early_stop_patience": args.early_stop_patience,
+        "learning_rate":       args.lr,
+        "weight_decay":        args.weight_decay,
+        "grad_clip":           args.grad_clip,
+        "lr_factor":           args.lr_factor,
+        "lr_patience":         args.lr_patience,
+        "random_seed":         args.seed,
+        "anomaly_alpha":       args.alpha,
+    }
+    with open(run_dir / "config.json", "w") as f:
+        json.dump(config, f, indent=2)
 
     # Load grid metadata from Zarr
     root = zarr.open_group(str(ZARR_PATH), mode="r")
@@ -175,38 +235,38 @@ def main():
 
     train_loader, val_loader, test_loader = create_dataloaders(
         zarr_path=ZARR_PATH,
-        context_len=CONTEXT_LEN,
-        horizon=HORIZON,
-        batch_size=BATCH_SIZE,
+        context_len=args.context_len,
+        horizon=args.horizon,
+        batch_size=args.batch_size,
     )
 
-    device         = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device          = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     land_mask_torch = torch.from_numpy(land_mask_np).to(device)
 
     model = TubeletTransformer(
         H=H, W=W,
-        context_len=CONTEXT_LEN,
-        horizon=HORIZON,
-        d_model=D_MODEL,
-        n_heads=N_HEADS,
-        n_layers=N_LAYERS,
-        d_ff=D_FF,
-        t_s=T_S,
-        p_h=P_H,
-        p_w=P_W,
-        dropout=DROPOUT,
+        context_len=args.context_len,
+        horizon=args.horizon,
+        d_model=args.d_model,
+        n_heads=args.n_heads,
+        n_layers=args.n_layers,
+        d_ff=args.d_ff,
+        t_s=args.t_s,
+        p_h=args.p_h,
+        p_w=args.p_w,
+        dropout=args.dropout,
     ).to(device)
 
     print(f"Parameters: {model.count_parameters():,}")
     print(f"Device: {device}")
     print(f"Time tokens T': {model.T_prime}  Spatial patches P: {model.P}")
 
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
-    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    criterion = AnomalyWeightedMSE(alpha=args.alpha)
 
-    # Halve LR whenever val loss doesn't improve for 3 consecutive epochs
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=5, threshold=1e-3, min_lr=1e-5, cooldown=2,
+        optimizer, mode="min", factor=args.lr_factor, patience=args.lr_patience,
+        threshold=1e-3, min_lr=1e-5, cooldown=2,
     )
 
     train_losses, val_losses = train_model(
@@ -216,22 +276,20 @@ def main():
         criterion=criterion,
         optimizer=optimizer,
         device=device,
-        num_epochs=NUM_EPOCHS,
+        num_epochs=args.num_epochs,
         land_mask=land_mask_torch,
-        grad_clip=GRAD_CLIP,
+        grad_clip=args.grad_clip,
         scheduler=scheduler,
-        early_stop_patience=EARLY_STOP_PATIENCE,
+        early_stop_patience=args.early_stop_patience,
     )
 
-    # Save checkpoint
-    ckpt_path = RESULTS_DIR / "tubelet_ckpt.pt"
+    ckpt_path = run_dir / "tubelet_ckpt.pt"
     torch.save(model.state_dict(), ckpt_path)
     print(f"Checkpoint saved to {ckpt_path}")
 
     # Evaluate on test set
     test_preds_norm, test_targets_norm = predict(model, test_loader, device)
 
-    # Denormalise to physical °C space for reporting
     test_preds   = test_preds_norm   * norm_std + norm_mean
     test_targets = test_targets_norm * norm_std + norm_mean
 
@@ -239,7 +297,6 @@ def main():
     model_rmse_mean  = float(model_rmse_steps.mean())
     model_mae        = mae(test_preds, test_targets, land_mask=land_mask_np)
 
-    # Persistence baseline — use raw test inputs collected from the loader
     print("Evaluating persistence baseline...")
     all_X, all_y = [], []
     for bx, by in test_loader:
@@ -249,20 +306,47 @@ def main():
     test_y_norm = np.concatenate(all_y, axis=0)
 
     pers_preds_norm = persistence_forecast(test_X_norm, horizon=HORIZON)
-    pers_preds      = pers_preds_norm   * norm_std + norm_mean
-    pers_targets    = test_y_norm       * norm_std + norm_mean
+    pers_preds      = pers_preds_norm * norm_std + norm_mean
+    pers_targets    = test_y_norm     * norm_std + norm_mean
 
     pers_rmse_steps = rmse_per_step(pers_preds, pers_targets, land_mask=land_mask_np)
     pers_rmse_mean  = float(pers_rmse_steps.mean())
     pers_mae        = mae(pers_preds, pers_targets, land_mask=land_mask_np)
 
-    rmse_skill_score = skill_score(model_rmse_mean, pers_rmse_mean)
-    mae_skill_score  = skill_score(model_mae, pers_mae)
+    rmse_skill = skill_score(model_rmse_mean, pers_rmse_mean)
+    mae_skill  = skill_score(model_mae, pers_mae)
 
-    # Summary
+    # Save metrics
+    metrics = {
+        "epochs_trained": len(train_losses),
+        "best_val_loss":  float(min(val_losses)),
+        "mean_rmse": {
+            "model": model_rmse_mean,
+            "persistence": pers_rmse_mean,
+            "skill": rmse_skill,
+        },
+        "mean_mae": {
+            "model": model_mae,
+            "persistence": pers_mae,
+            "skill": mae_skill,
+        },
+        "rmse_per_step": {
+            f"day_{i+1}": {
+                "model":       float(mr),
+                "persistence": float(pr),
+                "skill":       float(skill_score(mr, pr)),
+            }
+            for i, (mr, pr) in enumerate(zip(model_rmse_steps, pers_rmse_steps))
+        },
+    }
+    with open(run_dir / "metrics.json", "w") as f:
+        json.dump(metrics, f, indent=2)
+    print(f"Metrics saved to {run_dir / 'metrics.json'}")
+
+    # Print summary
     print("\nTubelet Transformer — Test Results")
     print("-----------------------------------")
-    print(f"  Context: {CONTEXT_LEN} days  Horizon: {HORIZON} days  Device: {device}")
+    print(f"  Context: {args.context_len} days  Horizon: {args.horizon} days  Device: {device}")
     print(f"  T'={model.T_prime} time tokens  P={model.P} spatial patches")
     print()
     print("  RMSE per step (°C):")
@@ -271,21 +355,19 @@ def main():
         print(f"    day {step}: model={mr:.4f}  persistence={pr:.4f}  skill={ss:+.4f}")
     print(f"  Mean RMSE : model={model_rmse_mean:.4f}  persistence={pers_rmse_mean:.4f}")
     print(f"  Mean MAE  : model={model_mae:.4f}  persistence={pers_mae:.4f}")
-    print(f"  RMSE skill: {rmse_skill_score:+.4f}")
-    print(f"  MAE  skill: {mae_skill_score:+.4f}")
+    print(f"  RMSE skill: {rmse_skill:+.4f}")
+    print(f"  MAE  skill: {mae_skill:+.4f}")
 
-    # Spatial RMSE heatmap: mean over all test samples and all horizon steps
-    # Land cells stay NaN so they show as blank in the figure
-    spatial_rmse = np.sqrt(np.mean((test_preds - test_targets) ** 2, axis=(0, 1)))  # (H, W)
+    # Spatial RMSE heatmap
+    spatial_rmse = np.sqrt(np.mean((test_preds - test_targets) ** 2, axis=(0, 1)))
     spatial_rmse[~land_mask_np] = np.nan
 
-    # Pick the test sample with the largest ocean-mean absolute target anomaly
-    # at the final horizon step — likely to show a meaningful forecast pattern
+    # Sample with largest ocean-mean absolute anomaly at final horizon step
     ocean_abs = np.abs(test_targets[:, -1, :, :])[:, land_mask_np].mean(axis=1)
     sample_idx = int(np.argmax(ocean_abs))
 
-    sample_pred  = test_preds[sample_idx, -1]           # (H, W) at day HORIZON
-    sample_truth = test_targets[sample_idx, -1]          # (H, W)
+    sample_pred  = test_preds[sample_idx, -1].copy()
+    sample_truth = test_targets[sample_idx, -1].copy()
     sample_pred[~land_mask_np]  = np.nan
     sample_truth[~land_mask_np] = np.nan
 
@@ -299,8 +381,8 @@ def main():
         sample_truth=sample_truth,
         lat=lat,
         lon=lon,
-        norm_std=norm_std,
-        save_path=RESULTS_DIR / "tubelet_results.png",
+        horizon=args.horizon,
+        save_path=run_dir / "tubelet_results.png",
     )
 
 
