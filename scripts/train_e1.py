@@ -65,6 +65,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from sst_forecasting.data.dataset import SSTWindowDataset
 from sst_forecasting.models.lstm import SpatialFlatLSTM
 from sst_forecasting.models.transformer import SpatialFlatTransformer
+from sst_forecasting.models.convlstm import SpatialConvLSTM
 from sst_forecasting.utils.metrics import rmse as rmse_metric
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -85,7 +86,7 @@ def _parse_args() -> argparse.Namespace:
                    help="Context window L in days.")
 
     # Model
-    p.add_argument("--model", choices=["lstm", "transformer"], required=True,
+    p.add_argument("--model", choices=["lstm", "transformer", "convlstm"], required=True,
                    help="Model architecture.")
     # LSTM hyperparams
     p.add_argument("--lstm-d-spatial", type=int, default=64)
@@ -96,6 +97,13 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--tf-nhead", type=int, default=8)
     p.add_argument("--tf-layers", type=int, default=4)
     p.add_argument("--tf-ffn-dim", type=int, default=256)
+    # ConvLSTM hyperparams
+    p.add_argument("--convlstm-hidden", type=int, nargs="+", default=[32, 64],
+                   metavar="CH",
+                   help="Hidden channel widths per ConvLSTM layer (space-separated). "
+                        "Default: 32 64  (~260 k params).")
+    p.add_argument("--convlstm-kernel", type=int, default=3,
+                   help="Spatial kernel size for ConvLSTM gates.")
     # Shared
     p.add_argument("--dropout", type=float, default=0.1)
 
@@ -157,7 +165,7 @@ def _build_model(args: argparse.Namespace, H: int, W: int) -> nn.Module:
             num_layers=args.lstm_layers,
             dropout=args.dropout,
         )
-    else:
+    elif args.model == "transformer":
         return SpatialFlatTransformer(
             H=H, W=W,
             context_len=args.context_len,
@@ -166,6 +174,15 @@ def _build_model(args: argparse.Namespace, H: int, W: int) -> nn.Module:
             nhead=args.tf_nhead,
             num_encoder_layers=args.tf_layers,
             dim_feedforward=args.tf_ffn_dim,
+            dropout=args.dropout,
+        )
+    else:  # convlstm
+        return SpatialConvLSTM(
+            H=H, W=W,
+            context_len=args.context_len,
+            horizon=args.horizon,
+            hidden_channels=args.convlstm_hidden,
+            kernel_size=args.convlstm_kernel,
             dropout=args.dropout,
         )
 
