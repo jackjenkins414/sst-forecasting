@@ -146,6 +146,7 @@ def main():
     )
 
     # RNN Baseline
+    print("Evaluating RNN baseline...")
     rnn_model = RNN(
         H=H,
         W=W,
