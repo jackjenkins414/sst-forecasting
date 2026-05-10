@@ -103,7 +103,7 @@ def main():
         grad_clip=GRAD_CLIP,
     )
 
-    # Evaluate LSTM on test set
+    # Evaluate RNN on test set
     test_preds_norm, test_targets_norm = predict(
         model=model,
         data_loader=test_loader,
@@ -114,13 +114,13 @@ def main():
     test_preds_celsius = (test_preds_norm * norm_std) + norm_mean
     test_targets_celsius = (test_targets_norm * norm_std) + norm_mean
 
-    lstm_rmse_per_step = rmse_per_step(
+    rnn_rmse_per_step = rmse_per_step(
         test_preds_celsius, 
         test_targets_celsius, 
         land_mask=land_mask_np,
     )
-    lstm_rmse_mean = float(lstm_rmse_per_step.mean())
-    lstm_mae = mae(
+    rnn_rmse_mean = float(rnn_rmse_per_step.mean())
+    rnn_mae = mae(
         test_preds_celsius, 
         test_targets_celsius, 
         land_mask=land_mask_np
@@ -150,8 +150,8 @@ def main():
     )
 
     # Skill scores
-    rmse_skill = skill_score(lstm_rmse_mean, persistence_rmse_mean)
-    mae_skill = skill_score(lstm_mae, persistence_mae)
+    rmse_skill = skill_score(rnn_rmse_mean, persistence_rmse_mean)
+    mae_skill = skill_score(rnn_mae, persistence_mae)
 
     # Summary
     print("\RNN Experiment Summary")
@@ -163,10 +163,10 @@ def main():
     print(f"Device: {device}")
 
     print("\nRNN (test, °C):")
-    for h, r in enumerate(lstm_rmse_per_step, start=1):
+    for h, r in enumerate(rnn_rmse_per_step, start=1):
         print(f"  RMSE day {h}: {r:.4f}")
-    print(f"  RMSE mean:  {lstm_rmse_mean:.4f}")
-    print(f"  MAE  mean:  {lstm_mae:.4f}")
+    print(f"  RMSE mean:  {rnn_rmse_mean:.4f}")
+    print(f"  MAE  mean:  {rnn_mae:.4f}")
 
     print("\nPersistence (test, °C):")
     for h, r in enumerate(persistence_rmse_per_step, start=1):

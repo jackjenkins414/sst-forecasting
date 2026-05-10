@@ -14,6 +14,8 @@ from src.data.dataloaders import create_dataloaders
 
 from src.models.lstm import StackedSpatialLSTM
 
+from src.baselines.rnn import RNN
+
 from src.training.train import train_model
 from src.training.evaluate import predict
 
@@ -69,7 +71,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     land_mask_torch = torch.from_numpy(land_mask_np).to(device)
 
-    model = StackedSpatialLSTM(
+    lstm_model = StackedSpatialLSTM(
         H=H,
         W=W,
         context_len=CONTEXT_LEN,
@@ -85,14 +87,14 @@ def main():
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(
-        model.parameters(),
+        lstm_model.parameters(),
         lr=LEARNING_RATE,
         weight_decay=WEIGHT_DECAY,
     )
 
-    # Train
+    # LSTM Train
     train_losses, val_losses = train_model(
-        model=model,
+        model=lstm_model,
         train_loader=train_loader,
         val_loader=val_loader,
         criterion=criterion,
@@ -105,7 +107,7 @@ def main():
 
     # Evaluate LSTM on test set
     test_preds_norm, test_targets_norm = predict(
-        model=model,
+        model=lstm_model,
         data_loader=test_loader,
         device=device,
     )
@@ -143,9 +145,68 @@ def main():
         persistence_preds_celsius, persistence_targets_celsius, land_mask=land_mask_np,
     )
 
+    # RNN Baseline
+    rnn_model = RNN(
+        H=H,
+        W=W,
+        context_len=CONTEXT_LEN,
+        horizon=HORIZON,
+        d_spatial=D_SPATIAL,
+        hidden_size=HIDDEN_SIZE,
+        num_layers=NUM_LAYERS,
+        dropout=DROPOUT,
+    ).to(device)
+
+    n_rnn_params = sum(p.numel() for p in rnn_model.parameters())
+    print(f"Model parameters: {n_rnn_params:,}")
+
+    rnn_optimiser = optim.Adam(
+        rnn_model.parameters(),
+        lr=LEARNING_RATE,
+        weight_decay=WEIGHT_DECAY,
+    )
+
+    # Train RNN
+    train_model(
+        model=rnn_model,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        criterion=criterion,
+        optimizer=rnn_optimiser,
+        device=device,
+        num_epochs=NUM_EPOCHS,
+        land_mask=land_mask_torch,
+        grad_clip=GRAD_CLIP,
+    )
+
+    # Evaluate RNN on test set
+    rnn_preds_norm, rnn_targets_norm = predict(
+        model=rnn_model,
+        data_loader=test_loader,
+        device=device,
+    )
+
+    # Denormalise to °C
+    rnn_preds_celsius = (rnn_preds_norm * norm_std) + norm_mean
+    rnn_targets_celsius = (rnn_targets_norm * norm_std) + norm_mean
+
+    rnn_rmse_per_step = rmse_per_step(
+        rnn_preds_celsius, 
+        rnn_targets_celsius, 
+        land_mask=land_mask_np,
+    )
+    rnn_rmse_mean = float(rnn_rmse_per_step.mean())
+    rnn_mae = mae(
+        rnn_preds_celsius, 
+        rnn_targets_celsius, 
+        land_mask=land_mask_np
+    )
+
     # Skill scores
-    rmse_skill = skill_score(lstm_rmse_mean, persistence_rmse_mean)
-    mae_skill = skill_score(lstm_mae, persistence_mae)
+    rmse_persistence_skill = skill_score(lstm_rmse_mean, persistence_rmse_mean)
+    mae_persistence_skill = skill_score(lstm_mae, persistence_mae)
+    rmse_rnn_skill = skill_score(lstm_rmse_mean, rnn_rmse_mean)
+    mae_rnn_skill = skill_score(lstm_mae, rnn_mae)
 
     # Summary
     print("\nLSTM Experiment Summary")
@@ -167,9 +228,19 @@ def main():
     print(f"  RMSE mean:  {persistence_rmse_mean:.4f}")
     print(f"  MAE  mean:  {persistence_mae:.4f}")
 
+    print("\nRNN (test, °C):")
+    for h, r in enumerate(rnn_rmse_per_step, start=1):
+        print(f"  RMSE day {h}: {r:.4f}")
+    print(f"  RMSE mean:  {rnn_rmse_mean:.4f}")
+    print(f"  MAE  mean:  {rnn_mae:.4f}")
+
     print("\nSkill vs persistence:")
-    print(f"  RMSE skill: {rmse_skill:.4f}")
-    print(f"  MAE  skill: {mae_skill:.4f}")
+    print(f"  RMSE skill: {rmse_persistence_skill:.4f}")
+    print(f"  MAE  skill: {mae_persistence_skill:.4f}")
+
+    print("\nSkill vs RNN:")
+    print(f"  RMSE skill: {rmse_rnn_skill:.4f}")
+    print(f"  MAE  skill: {mae_rnn_skill:.4f}")
 
 
 if __name__ == "__main__":
