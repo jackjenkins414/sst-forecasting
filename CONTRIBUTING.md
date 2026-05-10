@@ -60,6 +60,7 @@ This is where your new model goes. One file per model. Add whatever you guys lik
 ### `src/baselines/`
 
 - **`persistence.py`** — `persistence_forecast()`. Predicts every future day as the last context day. **Reuse as-is for comparison.**
+- **`rnn.py`** - `RNN`. A baseline recurrent neural network model for evaluating the enhanced models in `src/models/`. **Reuse as-is for comparison.**
 
 ### `src/utils/`
 
