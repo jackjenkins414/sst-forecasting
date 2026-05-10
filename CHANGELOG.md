@@ -269,10 +269,103 @@ Every batch script in this project follows the same template, encoded in the E0 
 1. ~~**E0 baselines**~~ ✓ 3 May 2026
 2. ~~**NFS + sbatch validation**~~ ✓ 3 May 2026
 3. ~~**E1 MVE — LSTM vs Transformer at h=7**~~ ✓ 3 May 2026 — see results below
-4. **E1 multi-seed** (P0): re-run both models with seeds 0/1/2 for reportable mean ± std; diagnose Transformer underperformance (try LR=1e-4 + warmup, patch tokenisation).
-5. **E2 — GRU + ConvLSTM** (P1): extend model roster at h=7.
-6. **E3 — horizon sweep** (P1): all models at h ∈ {1, 7, 30}.
-7. **Models scaffolding**: drop stale empty top-level `src/` directories.
+4. ~~**E2 — ConvLSTM implementation**~~ ✓ 10 May 2026 — see below
+5. **E1 multi-seed** (P0): re-run both models with seeds 0/1/2 for reportable mean ± std; diagnose Transformer underperformance (try LR=1e-4 + warmup, patch tokenisation).
+6. **E2 ConvLSTM run** (P0): train ConvLSTM at h=7, L=90, seed=42 on hpc-03; compare against LSTM baseline.
+7. **E3 — horizon sweep** (P1): all models at h ∈ {1, 7, 30}.
+8. **Models scaffolding**: drop stale empty top-level `src/` directories.
+
+### E2 ConvLSTM implementation — 10 May 2026 ✓
+
+Added `SpatialConvLSTM` (E2 model) to the codebase.  Commit `b071bf7` on branch `ayush`.
+
+#### What was added
+
+| File | Change |
+|---|---|
+| `src/sst_forecasting/models/convlstm.py` | `ConvLSTMCell` + `SpatialConvLSTM` (~260 k params) |
+| `configs/convlstm.yaml` | hidden=[32,64], lr=5e-4, batch_size=4 |
+| `tests/test_models_forward.py` | 12 new ConvLSTM tests — 64/64 passing |
+| `scripts/train_e1.py` | `--model convlstm`, `--convlstm-hidden`, `--convlstm-kernel` args |
+
+#### Architecture
+
+```
+(B, L, 1, H, W)
+  → ConvLSTMCell(1 → 32, kernel=3×3)   [unrolled L steps, same-padding]
+  → ConvLSTMCell(32 → 64, kernel=3×3)  [unrolled L steps, same-padding]
+  → Dropout2d(0.1)
+  → Conv2d(64 → h, kernel=1×1)         [one output channel per lead time]
+  → (B, h, H, W)
+```
+
+Parameters: ~260 k (37× fewer than `SpatialFlatLSTM` at 9.7 M).
+
+#### Why it should outperform the flat LSTM
+
+`SpatialFlatLSTM` flattens the 81×121 grid to 9 801 scalars before the RNN, discarding all spatial neighbourhood information.  `SpatialConvLSTM` uses 3×3 convolutional gates so each hidden-state cell can communicate with its spatial neighbours at every recurrent step — the right inductive bias for SST anomalies that propagate across adjacent grid cells (mesoscale eddies, fronts).  Two stacked layers give a 5×5 receptive field at the hidden level (~1.25° at 0.25° resolution).
+
+#### Running ConvLSTM on Raijin
+
+**Smoke test locally first (no Zarr needed — uses synthetic data):**
+
+```bash
+# takes < 5 s, checks forward/backward pass, shapes, grads
+python3 -m pytest tests/test_models_forward.py -k convlstm -v
+```
+
+**Interactive run on hpc-01 (no sbatch needed for a quick check):**
+
+```bash
+source ~/miniconda3/etc/profile.d/conda.sh && conda activate sst
+
+export OMP_NUM_THREADS=16
+export MKL_NUM_THREADS=16
+export MKL_ENABLE_INSTRUCTIONS=AVX
+
+# 2-epoch smoke test — finishes in ~10 min on 16 cores
+numactl --interleave=all python3 scripts/train_e1.py \
+    --model convlstm \
+    --convlstm-hidden 32 64 \
+    --convlstm-kernel 3 \
+    --horizon 7 \
+    --context-len 90 \
+    --batch-size 4 \
+    --lr 5e-4 \
+    --max-epochs 2 \
+    --output-dir experiments/results/e2_convlstm_smoke
+```
+
+**Full training run via sbatch (hpc-03, 128 GB — required for BPTT memory):**
+
+```bash
+# from the sst-forecasting repo root on hpc-01
+sbatch \
+  --job-name=sstf_e2_convlstm \
+  --nodelist=hpc-03 \
+  --output=experiments/results/sstf_e2_convlstm-%j/slurm.out \
+  --error=experiments/results/sstf_e2_convlstm-%j/slurm.err \
+  --export=ALL,MODEL=convlstm,BATCH=4,LR=0.0005 \
+  scripts/slurm/raijin_e1.sbatch
+```
+
+> **Memory note:** BPTT over L=90 steps at B=4 holds ~2.4 GB of activations.
+> Use `--nodelist=hpc-03` or `hpc-06` (128 GB nodes).  64 GB nodes (hpc-02,04,05,07) are fine for the smoke test only.
+
+**Expected output files in `experiments/results/sstf_e2_convlstm-<jobid>/`:**
+
+```
+best_model.pt       checkpoint with lowest val MSE
+last_model.pt       final epoch checkpoint
+metrics.json        per-epoch train/val MSE + test metrics in °C
+run.yaml            provenance (git SHA, args, env, seed)
+training_log.csv    epoch, train_mse, val_mse, lr, elapsed_s
+slurm.out / .err    Slurm stdout/stderr
+```
+
+**Interpreting results** — compare against E1 LSTM (RMSE=0.6138 °C, SS=+0.118 vs persistence at h=7).  A well-trained ConvLSTM should reach lower RMSE given its spatial inductive bias; if it underperforms check `training_log.csv` for divergence (LR too high) or plateau without improvement (try `--convlstm-hidden 64 128`).
+
+
 
 ### E1 MVE results — 3 May 2026 ✓
 
