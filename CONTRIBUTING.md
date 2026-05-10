@@ -136,7 +136,7 @@ For sanity-checking your runs against the LSTM baseline:
 | | Test RMSE day 1 | Test RMSE day 7 | Test RMSE mean |
 |---|---|---|---|
 | Persistence | 0.33 °C | 0.70 °C | 0.58 °C |
-| Recurrent Neural Network (8 epochs) | 0.58 °C | 0.63 °C | 0.61 °C |
+| Recurrent Neural Network (8 epochs) | 0.57 °C | 0.63 °C | 0.60 °C |
 | StackedSpatialLSTM (8 epochs) | 0.60 °C | 0.63 °C | 0.62 °C |
 
 Persistence beats the LSTM at short horizons (less than eq 3 days) and the LSTM beats persistence at long horizons (\geq 4 days). A model that doesn't beat persistence at *any* horizon is probably misconfigured.
