@@ -82,7 +82,7 @@ def main():
         dropout=DROPOUT,
     ).to(device)
 
-    n_params = sum(p.numel() for p in model.parameters())
+    n_params = sum(p.numel() for p in lstm_model.parameters())
     print(f"Model parameters: {n_params:,}")
 
     criterion = nn.MSELoss()
