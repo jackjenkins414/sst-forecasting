@@ -312,7 +312,7 @@ def _print_summary(study: optuna.Study):
         return
 
     best = study.best_trial
-    print("\n── Optuna Study Summary ─────────────────────────────")
+    print("\n--- Optuna Study Summary ---")
     print(f"  Completed trials : {len(trials)}")
     print(f"  Best mean RMSE   : {best.value:.4f}")
     print(f"  Best params:")
