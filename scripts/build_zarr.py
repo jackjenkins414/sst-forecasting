@@ -1,16 +1,9 @@
-"""Build (or rebuild) the processed Zarr store from raw OISST NetCDF files.
-
-Usage
------
-    python scripts/build_zarr.py [options]
-
-Options
--------
-    --raw-dir      PATH   Directory containing oisst_v21_*.nc  [default: data/raw]
-    --zarr-path    PATH   Output Zarr store                    [default: data/processed/oisst_coralsea.zarr]
-    --overwrite           Delete existing store and rebuild
-    --log-level    LEVEL  [default: INFO]
-"""
+# Author: Ayush Samuel
+# Converts the raw NetCDF files into a processed Zarr store.
+# Computes the seasonal climatology, SST anomalies, and z-score normalisation
+# using training years only (no leakage into val/test).
+#
+# Usage: python scripts/build_zarr.py [--raw-dir PATH] [--zarr-path PATH] [--overwrite]
 
 from __future__ import annotations
 

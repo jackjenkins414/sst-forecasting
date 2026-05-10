@@ -1,21 +1,8 @@
-"""Download NOAA OISST v2.1 (Coral Sea crop) from CoastWatch ERDDAP.
-
-Usage
------
-    python scripts/download_oisst.py [options]
-
-Options
--------
-    --output-dir   PATH   Where to save .nc files  [default: data/raw]
-    --start-year   INT    First year to download    [default: 1981]
-    --end-year     INT    Last year to download     [default: 2000]
-    --lat-min      FLOAT  [default: -25.0]
-    --lat-max      FLOAT  [default:  -5.0]
-    --lon-min      FLOAT  [default: 140.0]
-    --lon-max      FLOAT  [default: 170.0]
-    --no-skip             Re-download existing files
-    --log-level    LEVEL  Logging verbosity         [default: INFO]
-"""
+# Author: Ayush Samuel
+# Downloads NOAA OISST v2.1 daily SST data for the Coral Sea (1981-2000)
+# from CoastWatch ERDDAP and saves one NetCDF file per year into data/raw/.
+#
+# Usage: python scripts/download_oisst.py [--output-dir PATH] [--start-year INT] [--end-year INT]
 
 from __future__ import annotations
 

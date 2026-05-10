@@ -1,24 +1,10 @@
-"""End-to-end pipeline validation using a 1-year mini dataset (1982).
-
-Downloads one year of OISST (~14 MB for the Coral Sea crop), builds the Zarr
-store, then validates every requirement from PLAN.md §4 and §5 before you
-commit to the full 20-year pull.
-
-Usage
------
-    python scripts/validate_pipeline.py [--keep-raw] [--log-level DEBUG]
-
-Options
--------
-    --keep-raw      Keep the downloaded NetCDF file after validation.
-    --output-dir    Base dir for raw/ and processed/ sub-dirs  [default: /tmp/sst_validate]
-    --log-level     Logging verbosity  [default: INFO]
-
-Exit code
----------
-    0 — all checks passed
-    1 — one or more checks failed (details printed to stdout)
-"""
+# Author: Ayush Samuel
+# Runs a quick end-to-end sanity check using only 1 year of data (1982).
+# Downloads ~14 MB, builds a small Zarr store, and verifies shapes,
+# dtypes, splits, and the dataset loader all work correctly.
+# Exits 0 if all checks pass, 1 if any fail.
+#
+# Usage: python scripts/validate_pipeline.py [--keep-raw] [--output-dir PATH]
 
 from __future__ import annotations
 
@@ -42,10 +28,7 @@ from sst_forecasting.data.splits import SPLITS
 
 log = logging.getLogger(__name__)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Validation helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
+# Coloured pass/fail markers and a shared list to collect failures
 PASS = "\033[92m✓\033[0m"
 FAIL = "\033[91m✗\033[0m"
 
@@ -61,10 +44,7 @@ def check(condition: bool, label: str, detail: str = "") -> None:
         _failures.append(msg)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 1. URL smoke-test  (HEAD request, no download)
-# ─────────────────────────────────────────────────────────────────────────────
-
+# 1. Check ERDDAP server is reachable before attempting a full download
 def validate_url() -> None:
     import requests
 
@@ -87,10 +67,7 @@ def validate_url() -> None:
         check(False, "ERDDAP reachable", str(exc))
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 2. Download 1982
-# ─────────────────────────────────────────────────────────────────────────────
-
+# 2. Download just 1982 (~14 MB) to confirm the downloader works
 def validate_download(raw_dir: Path) -> list[Path]:
     print("\n[2] Download 1982 (Coral Sea crop)")
     paths = download_oisst(
@@ -106,10 +83,7 @@ def validate_download(raw_dir: Path) -> list[Path]:
     return paths
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 3. Inspect raw NetCDF
-# ─────────────────────────────────────────────────────────────────────────────
-
+# 3. Check the downloaded NetCDF has correct variables, coordinates, and SST range
 def validate_netcdf(nc_path: Path) -> None:
     import xarray as xr
 
@@ -151,25 +125,19 @@ def validate_netcdf(nc_path: Path) -> None:
     ds.close()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 4. Build Zarr store
-# ─────────────────────────────────────────────────────────────────────────────
-
+# 4. Run the full preprocessing pipeline and confirm the Zarr store is created
 def validate_zarr_build(raw_dir: Path, zarr_path: Path) -> None:
     print("\n[4] Build Zarr store")
     build_zarr_store(raw_dir, zarr_path, overwrite=True)
     check(zarr_path.exists(), f"Zarr store created at {zarr_path}")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 5. Validate Zarr store contents against PLAN.md requirements
-# ─────────────────────────────────────────────────────────────────────────────
-
+# 5. Check every array in the Zarr store has the right shape, dtype, and values
 def validate_zarr_contents(zarr_path: Path) -> None:
-    print("\n[5] Zarr store contents and requirements (PLAN.md §4 / §5)")
+    print("\n[5] Zarr store contents")
     root = zarr.open_group(str(zarr_path), mode="r")
 
-    # ── Array existence ───────────────────────────────────────────────────────
+    # Check all expected arrays exist
     for arr in ("time", "lat", "lon", "sst", "sst_anom", "sst_norm",
                 "climatology", "land_mask"):
         check(arr in root, f"Array '{arr}' present in Zarr store")
@@ -178,20 +146,20 @@ def validate_zarr_contents(zarr_path: Path) -> None:
     H = root["sst"].shape[1]
     W = root["sst"].shape[2]
 
-    # ── Shapes ────────────────────────────────────────────────────────────────
+    # Check shapes
     check(root["sst"].shape       == (T, H, W), f"sst shape ({T},{H},{W})")
     check(root["sst_anom"].shape  == (T, H, W), f"sst_anom shape ({T},{H},{W})")
     check(root["sst_norm"].shape  == (T, H, W), f"sst_norm shape ({T},{H},{W})")
     check(root["climatology"].shape == (366, H, W), f"climatology shape (366,{H},{W})")
     check(root["land_mask"].shape == (H, W),    f"land_mask shape ({H},{W})")
 
-    # ── dtypes ────────────────────────────────────────────────────────────────
+    # Check dtypes
     check(root["sst"].dtype      == np.float32, "sst dtype float32")
     check(root["sst_norm"].dtype == np.float32, "sst_norm dtype float32")
     check(root["time"].dtype     == np.int64,   "time dtype int64")
     check(root["land_mask"].dtype == np.dtype("bool"), "land_mask dtype bool")
 
-    # ── Spatial extent ────────────────────────────────────────────────────────
+    # Check lat/lon are within the Coral Sea bounding box
     lat = root["lat"][:]
     lon = root["lon"][:]
     check(float(lat.min()) >= -25.5 and float(lat.max()) <= -4.5,
@@ -203,13 +171,13 @@ def validate_zarr_contents(zarr_path: Path) -> None:
     check(H == expected_H, f"H={H} == {expected_H} (0.25° spacing, 25°S–5°S)")
     check(W == expected_W, f"W={W} == {expected_W} (0.25° spacing, 140°E–170°E)")
 
-    # ── Time ─────────────────────────────────────────────────────────────────
+    # Check time coverage
     epoch = pd.Timestamp("1970-01-01")
     time_pd = pd.DatetimeIndex([epoch + pd.Timedelta(days=int(d)) for d in root["time"][:]])
     check(len(time_pd) >= 365, f"At least 365 timesteps: {len(time_pd)}")
     check(time_pd[0].year == 1982, f"First timestep in 1982: {time_pd[0].date()}")
 
-    # ── Metadata attributes ───────────────────────────────────────────────────
+    # Check all metadata attributes are present
     attrs = dict(root.attrs)
     for key in ("norm_mean", "norm_std", "train_start", "train_end",
                 "val_start", "val_end", "test_start", "test_end", "T", "H", "W"):
@@ -218,11 +186,7 @@ def validate_zarr_contents(zarr_path: Path) -> None:
         check(attrs["train_start"] == SPLITS["train"][0],
               f"train_start matches split: {attrs['train_start']}")
 
-    # ── No-leakage check: norm stats computed from training timesteps only ────
-    # NOTE: With a single training year the DOY climatology equals the training
-    # data exactly, so sst_anom ≡ 0.  preprocess.py falls back to std=1.0 in
-    # that case.  Skip the sst_norm distribution checks here — they only make
-    # sense with ≥2 loaded training years.
+    # Skip norm-stat checks when only 1 training year is loaded (anomaly is always 0)
     ocean = root["land_mask"][:]
     epoch = pd.Timestamp("1970-01-01")
     time_pd_loaded = pd.DatetimeIndex(
@@ -244,7 +208,7 @@ def validate_zarr_contents(zarr_path: Path) -> None:
     else:
         print(f"  (skipping norm-std checks{_note})")
 
-    # ── Anomaly sanity: mean of climatology over DOY for a single cell ────────
+    # Check the climatology values at the centre grid cell look sensible
     clim = root["climatology"][:]  # (366, H, W)
     mid_lat, mid_lon = H // 2, W // 2
     if ocean[mid_lat, mid_lon]:
@@ -254,18 +218,15 @@ def validate_zarr_contents(zarr_path: Path) -> None:
         check(5 < float(np.mean(clim_cell)) < 35,
               f"Climatology centre cell mean in range 5–35°C: {np.mean(clim_cell):.2f}°C")
 
-    # ── Land mask ─────────────────────────────────────────────────────────────
+    # Check land mask has a reasonable ocean fraction
     ocean_frac = ocean.mean()
     check(0.5 < ocean_frac < 1.0,
           f"Land mask ocean fraction between 50–100%: {ocean_frac:.1%}")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 6. Validate SSTWindowDataset
-# ─────────────────────────────────────────────────────────────────────────────
-
+# 6. Confirm the PyTorch dataset returns correct tensor shapes and has no NaNs
 def validate_dataset(zarr_path: Path) -> None:
-    print("\n[6] SSTWindowDataset (PLAN.md §5 tensor contract)")
+    print("\n[6] SSTWindowDataset")
     L, h = 90, 7
 
     # All 1982 data is in the training split — use split="train"
@@ -305,10 +266,6 @@ def validate_dataset(zarr_path: Path) -> None:
     check(batch_y.shape == torch.Size([4, h, H, W]),
           f"DataLoader batch y shape (4,7,{H},{W}): got {tuple(batch_y.shape)}")
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Main
-# ─────────────────────────────────────────────────────────────────────────────
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
