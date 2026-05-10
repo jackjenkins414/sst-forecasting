@@ -14,7 +14,7 @@ class RNN(nn.Module):
     Architecture:
         flatten spatial    -> batch x context_len x H*W
         Linear + ReLU      -> batch x context_len x d_spatial
-        RNN       -> batch x hidden_size  (final hidden state)
+        RNN                -> batch x hidden_size  (final hidden state)
         Dropout
         Linear             -> batch x horizon * H*W
         reshape            -> batch x horizon x H x W
@@ -56,7 +56,7 @@ class RNN(nn.Module):
             hidden_size=hidden_size,
             num_layers=num_layers,
             # TODO: Check relu vs tanh here. 
-            nonlinearity="relu",
+            nonlinearity="tanh",
             batch_first=True,
             dropout=rnn_dropout,
         )
