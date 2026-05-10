@@ -154,7 +154,7 @@ def main():
     mae_skill = skill_score(rnn_mae, persistence_mae)
 
     # Summary
-    print("\RNN Experiment Summary")
+    print("\nRNN Experiment Summary")
     print("(Note: RNN is a baseline model, not an evaluation model.)")
     print("-----------------------")
     print(f"Context length: {CONTEXT_LEN}")
