@@ -6,6 +6,20 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 
+### Next steps (priority order)
+1. ~~**E0 baselines**~~ ✓ 3 May 2026
+2. ~~**NFS + sbatch validation**~~ ✓ 3 May 2026
+3. ~~**E1 MVE — LSTM vs Transformer at h=7**~~ ✓ 3 May 2026 — see results below
+4. ~~**E2 — ConvLSTM implementation**~~ ✓ 10 May 2026 — see below
+5. ~~**E2 ConvLSTM DDP run**~~ ✓ 11 May 2026 — **job 136 RUNNING** on hpc-03+hpc-06 (fixed rdzv endpoint; job 135 failed: raw IP 10.0.0.3 as rdzv host)
+6. ~~**E2 ConvLSTM CPU feasibility**~~ ✗ 11 May 2026 — **INFEASIBLE on Raijin** (job 137: BPTT L=90 saturates DRAM, 0 epochs in 2 h). Migrating to Gadi V100.
+7. **E2 ConvLSTM on Gadi V100** (P0): submit `scripts/pbs/gadi_e2_convlstm_v100.pbs` — ~1.5–2 h, ~54–72 SU. Branch: `e2/convlstm-gadi`.
+8. **E1 multi-seed** (P1): re-run both models with seeds 0/1/2 for reportable mean ± std; diagnose Transformer underperformance (try LR=1e-4 + warmup, patch tokenisation).
+9. **E3 — horizon sweep** (P2): all models at h ∈ {1, 7, 30}.
+10. **Models scaffolding**: drop stale empty top-level `src/` directories.
+
+---
+
 ### Added
 - `PLAN.md` — comprehensive project plan covering research questions, dataset strategy (OISST 1981–2000 primary track A; Himawari-8 hourly stretch track B), model roster, Setonix/ROCm workflow with SLURM scripts, target repo structure, experiment matrix (E0–E8), 8-week timeline aligned with course deadlines (video 31 May, report 14 Jun), risks, and definition of done.
 - `pyproject.toml` — package metadata, `sstf` CLI entry point, ruff + pytest config; `setuptools.build_meta` backend compatible with Python 3.12.
@@ -444,20 +458,6 @@ pbs.log             PBS stdout+stderr (combined with -j oe)
 vs persistence at h=7). A well-trained ConvLSTM should reach lower RMSE due to spatial
 inductive bias. If it underperforms, check `training_log.csv` for divergence (LR too
 high) or plateau (try `--convlstm-hidden 64 128`).
-
----
-
-### Next steps (priority order)
-1. ~~**E0 baselines**~~ ✓ 3 May 2026
-2. ~~**NFS + sbatch validation**~~ ✓ 3 May 2026
-3. ~~**E1 MVE — LSTM vs Transformer at h=7**~~ ✓ 3 May 2026 — see results below
-4. ~~**E2 — ConvLSTM implementation**~~ ✓ 10 May 2026 — see below
-5. ~~**E2 ConvLSTM DDP run**~~ ✓ 11 May 2026 — **job 136 RUNNING** on hpc-03+hpc-06 (fixed rdzv endpoint; job 135 failed: raw IP 10.0.0.3 as rdzv host)
-6. ~~**E2 ConvLSTM CPU feasibility**~~ ✗ 11 May 2026 — **INFEASIBLE on Raijin** (job 137: BPTT L=90 saturates DRAM, 0 epochs in 2 h). Migrating to Gadi V100.
-7. **E2 ConvLSTM on Gadi V100** (P0): submit `scripts/pbs/gadi_e2_convlstm_v100.pbs` — ~1.5–2 h, ~54–72 SU.
-8. **E1 multi-seed** (P1): re-run both models with seeds 0/1/2 for reportable mean ± std; diagnose Transformer underperformance (try LR=1e-4 + warmup, patch tokenisation).
-9. **E3 — horizon sweep** (P2): all models at h ∈ {1, 7, 30}.
-10. **Models scaffolding**: drop stale empty top-level `src/` directories.
 
 ### E2 ConvLSTM DDP — job 135 submitted — 11 May 2026
 
