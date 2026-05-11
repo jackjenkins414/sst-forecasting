@@ -1,0 +1,153 @@
+#!/bin/bash
+#PBS -N sstf_e2_convlstm_v100
+#PBS -q gpuvolta
+#PBS -l ncpus=12
+#PBS -l ngpus=1
+#PBS -l mem=90GB
+#PBS -l jobfs=50GB
+#PBS -l walltime=08:00:00
+#PBS -l storage=gdata/PROJ+scratch/PROJ
+#PBS -l wd
+#PBS -j oe
+#PBS -o experiments/results/sstf_e2_convlstm_v100-${PBS_JOBID}/pbs.log
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# E2: SpatialConvLSTM on Gadi gpuvolta (NVIDIA V100 32 GB)
+#
+# Queue facts (gpuvolta):
+#   charge rate : 3 SU / CPU-core / hour
+#   ncpus / GPU : 12  (mandatory ratio)
+#   cost        : 3 × 12 × walltime_h = 36 SU/GPU-hour
+#   4 h budget  : ~144 SU  (8 h wall cap = 288 SU max; actual ~54–72 SU)
+#
+# V100 specs relevant to this run:
+#   VRAM         : 32 GB   (L=90 B=16 ConvLSTM activations ≈ 9 GB — fits easily)
+#   FP32 compute : ~14 TFLOPS
+#   Estimated training time: ~1.5–2 h for 50 epochs
+#
+# PREREQUISITES (do these on the Gadi login node before submitting):
+#   1. Clone repo:
+#        cd $HOME && git clone https://github.com/jackjenkins414/sst-forecasting.git
+#        cd sst-forecasting && git checkout ayush
+#   2. Install CUDA PyTorch (see "Environment setup" in CHANGELOG Gadi section)
+#   3. Copy Zarr store to Gadi:
+#        scp -r <local>:~/sst-forecasting/data/processed/oisst_coralsea.zarr \
+#            gadi.nci.org.au:~/sst-forecasting/data/processed/
+#   4. Edit the two PROJ placeholders in #PBS -l storage above to your project code
+#   5. Submit:
+#        cd ~/sst-forecasting
+#        qsub scripts/pbs/gadi_e2_convlstm_v100.pbs
+#
+# Override hyperparams at submission time (all optional):
+#   qsub -v HIDDEN="64 128",LR=5e-4,BATCH=32 scripts/pbs/gadi_e2_convlstm_v100.pbs
+# ─────────────────────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+# ── Hyperparameters (override via qsub -v KEY=value) ─────────────────────────
+HIDDEN="${HIDDEN:-32 64}"       # space-separated ConvLSTM channel widths
+KERNEL="${KERNEL:-3}"
+LR="${LR:-1e-3}"
+BATCH="${BATCH:-16}"            # single-GPU batch size
+HORIZON="${HORIZON:-7}"
+CONTEXT_LEN="${CONTEXT_LEN:-90}"
+MAX_EPOCHS="${MAX_EPOCHS:-50}"
+SEED="${SEED:-42}"
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+REPO="$HOME/sst-forecasting"
+RUN_ID="${PBS_JOBNAME:-sstf_e2_convlstm_v100}-${PBS_JOBID:-local}"
+OUT_DIR="$REPO/experiments/results/$RUN_ID"
+ZARR="$REPO/data/processed/oisst_coralsea.zarr"
+
+mkdir -p "$OUT_DIR"
+ln -sfn "$RUN_ID" "$REPO/experiments/results/latest_e2_convlstm_v100"
+
+cd "$REPO"
+
+# ── Load modules ──────────────────────────────────────────────────────────────
+module purge
+module load python3/3.11.7          # Gadi system Python 3.11
+# PyTorch CUDA wheel is installed in the venv (see setup instructions).
+# We activate the venv below; no pytorch module needed.
+
+# ── Activate Python venv ──────────────────────────────────────────────────────
+# The venv must be pre-created at $HOME/sst-forecasting/.venv with:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+#   pip install -r requirements.txt && pip install -e .
+source "$REPO/.venv/bin/activate"
+
+# ── CUDA / GPU env ────────────────────────────────────────────────────────────
+export CUDA_VISIBLE_DEVICES=0
+export CUDA_LAUNCH_BLOCKING=0       # async GPU ops (normal production mode)
+# cuDNN autotuner: benchmark once then reuse best kernel
+export CUDNN_BENCHMARK=1
+
+# ── Threading (12 CPUs allocated; 6 for dataloading, rest for MKL/OMP) ───────
+export OMP_NUM_THREADS=4
+export MKL_NUM_THREADS=4
+export OPENBLAS_NUM_THREADS=4
+export NUMEXPR_NUM_THREADS=4
+export PYTHONHASHSEED="${SEED}"
+export PYTHONUNBUFFERED=1
+
+# ── Provenance snapshot ───────────────────────────────────────────────────────
+{
+    echo "=== provenance $(date -Is) ==="
+    echo "host:          $(hostname)"
+    echo "pbs_job:       ${PBS_JOBID:-none}"
+    echo "queue:         gpuvolta (V100 32 GB)"
+    echo "git_sha:       $(git rev-parse HEAD 2>/dev/null || echo unknown)"
+    echo "python:        $(which python) ($(python --version 2>&1))"
+    echo "torch:         $(python -c 'import torch; print(torch.__version__)' 2>&1)"
+    echo "cuda:          $(python -c 'import torch; print(torch.version.cuda)' 2>&1)"
+    echo "gpu:           $(python -c 'import torch; print(torch.cuda.get_device_name(0))' 2>&1)"
+    echo "vram_gb:       $(python -c 'import torch; print(round(torch.cuda.get_device_properties(0).total_memory/1e9,1))' 2>&1)"
+    echo "model:         convlstm"
+    echo "hidden:        ${HIDDEN}"
+    echo "kernel:        ${KERNEL}"
+    echo "lr:            ${LR}"
+    echo "batch:         ${BATCH}"
+    echo "horizon:       ${HORIZON}"
+    echo "context_len:   ${CONTEXT_LEN}"
+    echo "max_epochs:    ${MAX_EPOCHS}"
+    echo "seed:          ${SEED}"
+    echo "==="
+} | tee "$OUT_DIR/env.log"
+
+python -m pip freeze > "$OUT_DIR/pip-freeze.txt" 2>/dev/null || true
+env > "$OUT_DIR/full-env.log"
+
+# ── Sanity check: GPU visible ─────────────────────────────────────────────────
+python - <<'PYEOF'
+import torch, sys
+assert torch.cuda.is_available(), "CUDA not available — check module/venv setup"
+d = torch.cuda.get_device_properties(0)
+print(f"[gadi_pbs] GPU OK: {d.name}  VRAM={d.total_memory/1e9:.1f} GB")
+sys.exit(0)
+PYEOF
+
+# ── Run training ──────────────────────────────────────────────────────────────
+# train_e1.py supports --model convlstm and uses CUDA automatically when
+# torch.cuda.is_available() is True (device selection is in the script).
+# shellcheck disable=SC2086
+python scripts/train_e1.py \
+    --model convlstm \
+    --convlstm-hidden ${HIDDEN} \
+    --convlstm-kernel "${KERNEL}" \
+    --horizon "${HORIZON}" \
+    --context-len "${CONTEXT_LEN}" \
+    --zarr-path "${ZARR}" \
+    --output-dir "${OUT_DIR}" \
+    --max-epochs "${MAX_EPOCHS}" \
+    --batch-size "${BATCH}" \
+    --lr "${LR}" \
+    --patience 10 \
+    --lr-patience 5 \
+    --lr-factor 0.5 \
+    --grad-clip 1.0 \
+    --weight-decay 1e-4 \
+    --seed "${SEED}" \
+    2>&1 | tee "$OUT_DIR/train.log"
+
+echo "[gadi_pbs] done. Results in ${OUT_DIR}"

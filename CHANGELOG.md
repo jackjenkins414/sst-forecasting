@@ -265,15 +265,307 @@ Every batch script in this project follows the same template, encoded in the E0 
 | Result pollution | Output dir is per-jobid (`%x-%j`); never overwritten; symlink `latest/` for convenience |
 | AVX2 fallback noise | `MKL_ENABLE_INSTRUCTIONS=AVX` |
 
+### E2 ConvLSTM — Gadi V100 migration plan — 11 May 2026
+
+Raijin job 137 (DDP, 2×hpc-03+hpc-06) is **stalled**: after ~2 h it has not completed
+a single epoch. Root cause: BPTT over L=90 steps at B=16 builds ~50 GB of autograd
+activation tensors per rank. Sandy Bridge's ~50 GB/s DDR4 bandwidth is completely
+saturated — all 16 threads spin waiting for DRAM, giving ~1-core effective throughput.
+The epoch would take ~6–10 h on CPU; 50 epochs is not feasible before the deadline.
+
+**Decision: migrate E2 to NCI Gadi `gpuvolta` (NVIDIA V100 32 GB).**
+
+#### Why V100 solves the problem
+
+| | Raijin CPU | V100 (gpuvolta) |
+|---|---|---|
+| Memory bandwidth | ~50 GB/s DDR4 | ~900 GB/s HBM2 |
+| BPTT activation buffer (L=90, B=16) | ~50 GB → DRAM saturated | ~9 GB → fits in 32 GB HBM |
+| Effective throughput | ~1 core | ~14 TFLOPS FP32 |
+| Estimated epoch time | ~6–10 h | ~2–3 min |
+| 50 epochs total | infeasible | **~1.5–2 h** |
+
+#### Gadi GPU options (for reference)
+
+| Queue | GPU | Rate | CPUs/GPU | Cost/GPU-hour | 4 h job |
+|---|---|---|---|---|---|
+| `gpuvolta` | V100 32 GB | 3 SU/core | 12 | **36 SU/h** | **144 SU** |
+| `dgxa100` | A100 80 GB | 4.5 SU/core | 16 | **72 SU/h** | 288 SU |
+| `gpuhopper` | H200 141 GB | 7.5 SU/core | 12 | **90 SU/h** | 360 SU |
+
+V100 is the right choice: 9 GB activation footprint fits in 32 GB VRAM, and it is
+2.5× cheaper than A100 and 2.5× cheaper than H200 per hour.
+
+#### New file: `scripts/pbs/gadi_e2_convlstm_v100.pbs`
+
+PBS script targeting `gpuvolta` (1 V100, 12 CPUs, 90 GB RAM, **8 h walltime** — extended for buffer).
+Estimated cost: **~54–72 SU** for a full 50-epoch run (~1.5–2 h actual); 8 h cap = 288 SU maximum.
+
+Key differences from the Raijin Slurm scripts:
+- PBS directives (`#PBS`) instead of SBATCH
+- `module load python3/3.11.7` + `.venv` activation (CUDA wheel installed in venv)
+- `CUDA_VISIBLE_DEVICES=0`, `CUDNN_BENCHMARK=1`
+- Single node, no DDP/torchrun — single-GPU `train_e1.py --model convlstm`
+- `OMP_NUM_THREADS=4` (12 CPUs ÷ 3: 4 for PyTorch, 8 for DataLoader workers)
+
+#### Fix applied: `scripts/train_e1.py` — device auto-detection
+
+`train_e1.py` previously hardcoded `device = torch.device("cpu")`. Changed to:
+
+```python
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+    print(f"[train_e1] Using GPU: {torch.cuda.get_device_name(0)} ...")
+else:
+    device = torch.device("cpu")
+    torch.set_num_threads(int(os.environ.get("OMP_NUM_THREADS", "1")))
+```
+
+This is backward-compatible: Raijin (no CUDA) falls back to CPU as before.
+
+---
+
+### Gadi E2 setup instructions (for the agent running this on Gadi)
+
+**Context for agent:** The repo is `https://github.com/jackjenkins414/sst-forecasting`
+branch `ayush`. The Zarr store (613 MB) must be transferred from Raijin or a local
+machine — it is gitignored. The PBS script at `scripts/pbs/gadi_e2_convlstm_v100.pbs`
+is ready to submit once the environment is set up.
+
+**Step 1 — Clone and checkout on Gadi login node:**
+
+```bash
+cd $HOME
+git clone https://github.com/jackjenkins414/sst-forecasting.git
+cd sst-forecasting
+git checkout ayush
+```
+
+**Step 2 — Create venv with CUDA PyTorch:**
+
+```bash
+# Python 3.11 from Gadi module
+module load python3/3.11.7
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+
+# CUDA 12.1 wheel (matches Gadi's CUDA 12.x driver on gpuvolta nodes)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# Project deps
+pip install -r requirements.txt
+pip install -e .
+
+# Smoke test (CPU-only on login node — no GPU needed for unit tests)
+pytest -q
+# Expected: 64 passed
+```
+
+**Step 3 — Transfer the Zarr store:**
+
+Option A — from Raijin hpc-01 directly (requires Gadi access from Raijin or via a
+jumpbox/local machine):
+
+```bash
+# Run on Raijin hpc-01 (or locally):
+scp -r hpc-01:/home/hpc/sst-forecasting/data/processed/oisst_coralsea.zarr \
+    <gadi_username>@gadi.nci.org.au:~/sst-forecasting/data/processed/oisst_coralsea.zarr
+```
+
+Option B — from local Mac/Linux:
+
+```bash
+scp -r /path/to/oisst_coralsea.zarr \
+    <gadi_username>@gadi-dm.nci.org.au:~/sst-forecasting/data/processed/
+```
+
+Use `gadi-dm.nci.org.au` (data-mover node) for large transfers — faster than login nodes.
+
+**Step 4 — Edit PBS storage directive:**
+
+Open `scripts/pbs/gadi_e2_convlstm_v100.pbs` and replace `PROJ` with your actual
+NCI project code (e.g., `xy12`) in this line:
+
+```bash
+#PBS -l storage=gdata/xy12+scratch/xy12
+```
+
+If the Zarr store is in `$HOME` (not `/scratch` or `/g/data`), this directive can be
+omitted entirely — `$HOME` is always accessible.
+
+**Step 5 — Verify GPU visible before submitting:**
+
+```bash
+# From a login node (no GPU — just checks module+venv setup):
+source .venv/bin/activate
+python -c "import torch; print(torch.__version__, 'cuda:', torch.version.cuda)"
+# Expected: 2.x.x+cu121 cuda: 12.1
+```
+
+**Step 6 — Submit:**
+
+```bash
+cd ~/sst-forecasting
+qsub scripts/pbs/gadi_e2_convlstm_v100.pbs
+```
+
+Watch progress:
+```bash
+qstat -sw <jobid>
+tail -f experiments/results/sstf_e2_convlstm_v100-<jobid>/train.log
+```
+
+**Override hyperparams if needed:**
+
+```bash
+# Larger hidden channels (more capacity):
+qsub -v "HIDDEN=64 128",LR=5e-4,BATCH=32 scripts/pbs/gadi_e2_convlstm_v100.pbs
+
+# Quick 2-epoch smoke test:
+qsub -v MAX_EPOCHS=2,BATCH=16 scripts/pbs/gadi_e2_convlstm_v100.pbs
+```
+
+**Expected output files in `experiments/results/sstf_e2_convlstm_v100-<jobid>/`:**
+
+```
+best_model.pt       checkpoint with lowest val MSE
+last_model.pt       final epoch checkpoint
+metrics.json        per-epoch train/val MSE + test metrics in °C
+run.yaml            provenance (git SHA, args, env, seed)
+training_log.csv    epoch, train_mse, val_mse, lr, elapsed_s
+train.log           stdout from training script
+env.log             provenance snapshot (GPU name, VRAM, git SHA, etc.)
+pip-freeze.txt      full pip freeze at job start
+pbs.log             PBS stdout+stderr (combined with -j oe)
+```
+
+**Interpreting results:** compare against E1 LSTM baseline (RMSE=0.6138 °C, SS=+0.118
+vs persistence at h=7). A well-trained ConvLSTM should reach lower RMSE due to spatial
+inductive bias. If it underperforms, check `training_log.csv` for divergence (LR too
+high) or plateau (try `--convlstm-hidden 64 128`).
+
+---
+
 ### Next steps (priority order)
 1. ~~**E0 baselines**~~ ✓ 3 May 2026
 2. ~~**NFS + sbatch validation**~~ ✓ 3 May 2026
 3. ~~**E1 MVE — LSTM vs Transformer at h=7**~~ ✓ 3 May 2026 — see results below
 4. ~~**E2 — ConvLSTM implementation**~~ ✓ 10 May 2026 — see below
-5. **E1 multi-seed** (P0): re-run both models with seeds 0/1/2 for reportable mean ± std; diagnose Transformer underperformance (try LR=1e-4 + warmup, patch tokenisation).
-6. **E2 ConvLSTM run** (P0): train ConvLSTM at h=7, L=90, seed=42 on hpc-03; compare against LSTM baseline.
-7. **E3 — horizon sweep** (P1): all models at h ∈ {1, 7, 30}.
-8. **Models scaffolding**: drop stale empty top-level `src/` directories.
+5. ~~**E2 ConvLSTM DDP run**~~ ✓ 11 May 2026 — **job 136 RUNNING** on hpc-03+hpc-06 (fixed rdzv endpoint; job 135 failed: raw IP 10.0.0.3 as rdzv host)
+6. ~~**E2 ConvLSTM CPU feasibility**~~ ✗ 11 May 2026 — **INFEASIBLE on Raijin** (job 137: BPTT L=90 saturates DRAM, 0 epochs in 2 h). Migrating to Gadi V100.
+7. **E2 ConvLSTM on Gadi V100** (P0): submit `scripts/pbs/gadi_e2_convlstm_v100.pbs` — ~1.5–2 h, ~54–72 SU.
+8. **E1 multi-seed** (P1): re-run both models with seeds 0/1/2 for reportable mean ± std; diagnose Transformer underperformance (try LR=1e-4 + warmup, patch tokenisation).
+9. **E3 — horizon sweep** (P2): all models at h ∈ {1, 7, 30}.
+10. **Models scaffolding**: drop stale empty top-level `src/` directories.
+
+### E2 ConvLSTM DDP — job 135 submitted — 11 May 2026
+
+Two-node DDP training of `SpatialConvLSTM` submitted and **RUNNING**.
+
+| Item | Value |
+|---|---|
+| Slurm job | **135** |
+| Nodes | hpc-03 (rank 0, rendezvous) + hpc-06 (rank 1) |
+| Backend | gloo over IPoIB (`ibp176s0`, 56 Gb/s FDR) |
+| Rendezvous | c10d TCPStore at `10.0.0.3:29500` |
+| Per-rank batch size | 16 → effective global bs = **32** |
+| LR | 1e-3 |
+| Hidden channels | [32, 64] |
+| Max epochs | 50 (early stopping patience=10) |
+| Wall time | 8 h + USR1 graceful exit + `--requeue` |
+| Output dir | `experiments/results/sstf_e2_convlstm_ddp-135/` |
+
+New files created this session:
+- `scripts/train_e2_ddp.py` — ConvLSTM-only DDP script: gloo init, `DistributedSampler`,
+  cross-rank `all_reduce` of val MSE before early-stopping decisions, rank-0-only file
+  writes (`model.module.state_dict()`), USR1 graceful exit handler.
+- `scripts/slurm/raijin_e2_convlstm_ddp.sbatch` — 2-node Slurm script targeting
+  hpc-03+hpc-06; `GLOO_SOCKET_IFNAME=ibp176s0`, `GLOO_TIMEOUT_SECONDS=1800`,
+  `numactl --interleave=all` per rank.
+
+hpc-06 IB fix (also this session): `ibp176s0` was DOWN at boot (hardware Active but
+interface never brought up). Applied `ip link set ibp176s0 up` + `ip addr add 10.0.0.6/24`,
+made persistent via `/etc/netplan/60-ib.yaml`. Bidirectional ping RTT 0.25 ms, 0% loss.
+All 6 compute nodes now have IPoIB UP with correct `10.0.0.x/24` addresses.
+
+### E2 ConvLSTM DDP — job 135 failed: rendezvous bug — 11 May 2026
+
+**Root cause:** `--rdzv-endpoint=10.0.0.3:29500` (raw IPoIB IP) caused both ranks to fail
+as TCPStore clients. PyTorch's `_matches_machine_hostname()` (in
+`torch/distributed/elastic/rendezvous/utils.py`) determines server-vs-client by checking:
+
+```python
+if host == socket.gethostname():   # "10.0.0.3" != "hpc-03"  → False
+if addr_info[4][0] == str(addr):   # "192.168.2.103" != "10.0.0.3" → False
+```
+
+hpc-03's `gethostname()` returns `hpc-03` which resolves in `/etc/hosts` to `192.168.2.103`
+(ethernet), not `10.0.0.3` (IPoIB). Neither comparison matched → both ranks connected
+as clients → 60 s timeout × 2 retries → crash.
+
+**Fix applied to `scripts/slurm/raijin_e2_convlstm_ddp.sbatch`:**
+- Changed `RDZV_HOST` from `10.0.0.3` to `hpc-03` (actual hostname)
+- `host == socket.gethostname()` → `"hpc-03" == "hpc-03"` → **True** → hpc-03 starts the TCPStore server on `192.168.2.103:29500` (ethernet — fine for tiny rendezvous traffic)
+- Gloo collective traffic (all-reduce gradients) still goes over IPoIB via `GLOO_SOCKET_IFNAME=ibp176s0`
+- `hpc-03-ib` does NOT work (resolves to `10.0.0.3` via /etc/hosts but that doesn't match the ethernet IP that `getaddrinfo('hpc-03')` returns)
+
+**Note for all future multi-node DDP sbatch scripts:** always use the node's actual
+`hostname` (not its IB IP or `-ib` alias) as `--rdzv-endpoint` when using c10d rendezvous.
+The gloo socket interface selection (`GLOO_SOCKET_IFNAME`) is separate from the TCPStore
+rendezvous host determination.
+
+### E2 ConvLSTM DDP — job 136 RUNNING — 11 May 2026
+
+Re-submitted with fixed rdzv endpoint. Both ranks connected successfully:
+
+```
+[ddp] world_size=2  rank=0  host=hpc-03
+[ddp] backend=gloo  threads=16  GLOO_SOCKET_IFNAME=ibp176s0
+[ddp] Grid: H=81, W=121, ocean cells=7890
+[ddp rank=0] preloaded 277 MB
+[ddp rank=1] preloaded 277 MB
+[ddp] SpatialConvLSTM params=260,039  world_size=2
+```
+
+| Item | Value |
+|---|---|
+| Slurm job | **136** |
+| Nodes | hpc-03 + hpc-06 |
+| Per-rank batch size | 16 → effective global bs = **32** |
+| Train batches/epoch | ≈160/rank (5139 windows ÷ 2 ranks ÷ 16 bs) |
+| Val batches/epoch | ≈32/rank |
+| Estimated epoch time | ~20 min (160 batches × ConvLSTM L=90 BPTT, SSE4.2 fallback) |
+| Output dir | `experiments/results/sstf_e2_convlstm_ddp-136/` |
+
+MKL note: oneAPI 2026.0 has deprecated AVX1-only targets; MKL falls back to SSE4.2 on
+Sandy Bridge. Performance impact: slower than expected but training is correct.
+
+---
+
+### E2 ConvLSTM DDP — job 135 submitted — 11 May 2026
+
+---
+
+### E2 ConvLSTM — parity audit & config fix — 11 May 2026
+
+Deep parity audit against SpatialFlatLSTM (job 117). All data, training, infra, and eval
+dimensions are identical except two breaks found and fixed:
+
+| Item | LSTM (job 117) | ConvLSTM (job 133) | Status |
+|---|---|---|---|
+| `batch_size` | 16 | 4 | **Fixed** — `raijin_e2_convlstm.sbatch` + `configs/convlstm.yaml` updated to 16 |
+| `lr` | 1e-3 | 5e-4 | **Fixed** — both files updated to 1e-3 |
+| `train batches/epoch` | 322 | 1285 | consequence of bs — resolves with bs fix |
+
+Architectural difference (intended, not a parity break): ConvLSTM decodes a
+64-channel spatial map via a 1×1 Conv (tiny), while LSTM decodes a 128-dim vector
+via a dense linear to 9801 outputs (massive). Both use the last hidden state only.
+This is the hypothesis being tested — spatial inductive bias vs flat projection.
+
+Files updated: `configs/convlstm.yaml` (bs=16, lr=1e-3), `scripts/slurm/raijin_e2_convlstm.sbatch` (defaults corrected).
+
+---
 
 ### E2 ConvLSTM implementation — 10 May 2026 ✓
 

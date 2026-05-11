@@ -270,9 +270,14 @@ def main() -> None:
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Device (CPU on Raijin) ────────────────────────────────────────────────
-    device = torch.device("cpu")
-    torch.set_num_threads(int(os.environ.get("OMP_NUM_THREADS", "1")))
+    # ── Device (CUDA if available, else CPU) ─────────────────────────────────
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        print(f"[train_e1] Using GPU: {torch.cuda.get_device_name(0)} "
+              f"({torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB VRAM)")
+    else:
+        device = torch.device("cpu")
+        torch.set_num_threads(int(os.environ.get("OMP_NUM_THREADS", "1")))
 
     # ── Load metadata from Zarr ───────────────────────────────────────────────
     root = zarr.open_group(args.zarr_path, mode="r")

@@ -1,5 +1,7 @@
 # ConvLSTM hyperparameters — E2 experiment
-# batch_size <= 4 on 64 GB nodes due to BPTT activation memory
+# Parity-fixed 11 May 2026: batch_size and lr now match SpatialFlatLSTM (job 117)
+# so E2 vs E1 is a controlled architectural comparison.
+# hpc-03 / hpc-06 (128 GB) required for BPTT over L=90 at bs=16.
 
 model:
   hidden_channels: [32, 64]
@@ -7,8 +9,8 @@ model:
   dropout: 0.1
 
 training:
-  batch_size: 4
-  lr: 5.0e-4
+  batch_size: 16   # matches LSTM E1 (job 117)
+  lr: 1.0e-3       # matches LSTM E1 (job 117)
   weight_decay: 1.0e-4
   max_epochs: 50
   patience: 10
