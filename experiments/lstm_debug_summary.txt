@@ -1,0 +1,51 @@
+
+LSTM Debug Experiment Summary
+=============================
+
+Dataset:
+- NOAA OISST v2.1 daily SST
+- Region: Australia
+- Year: 2025
+- Low-resolution grid: 55 lat x 70 lon
+- Ocean points after land mask: 3165
+
+Preprocessing:
+- Removed land/missing grid cells using ocean mask
+- Flattened each daily SST map into ocean-point vector
+- Standardised SST values using global mean and standard deviation
+
+Sliding windows:
+- Input length: 30 days
+- Forecast horizon: 1 day
+- X shape: (335, 30, 3165)
+- y shape: (335, 3165)
+
+Split:
+- Train samples: 234
+- Validation samples: 50
+- Test samples: 51
+
+Model:
+- Simple flattened LSTM
+- Input size: 3165
+- Hidden size: 128
+- Number of layers: 1
+- Output size: 3165
+
+LSTM test performance:
+- RMSE: 1.0479 °C
+- MAE: 0.7975 °C
+
+Persistence baseline:
+- RMSE: 0.1588 °C
+- MAE: 0.1145 °C
+
+Skill score vs persistence:
+- RMSE skill: -5.5991
+- MAE skill: -5.9634
+
+Conclusion:
+- The simple flattened LSTM successfully trained end-to-end.
+- However, it performed worse than the persistence baseline for 1-day SST forecasting.
+- Persistence is very strong here because SST changes slowly from day to day.
+- Next stage should investigate longer forecast horizons, more training years, higher resolution, and better spatial architectures.
