@@ -68,7 +68,17 @@ class ProbSparseAttention(nn.Module):
         return
     
 #TODO
-class AttentionLayer(nn.Module):
+class SelfAttentionLayer(nn.Module):
+    def __init__():
+        #TODO
+        return
+    
+    def forward(self, x):
+        #TODO
+        return
+
+#TODO
+class CrossAttentionLayer(nn.Module):
     def __init__():
         #TODO
         return
