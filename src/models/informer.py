@@ -1,5 +1,6 @@
 # TODO: This currently is only a framework. Code and comments will be added 
 #       in due course. 
+# Based on: https://arxiv.org/pdf/2012.07436
 
 import torch
 import torch.nn as nn
@@ -15,7 +16,27 @@ class SpatialProjection(nn.Module):
         return
     
 #TODO
+class TemporalEmbedding(nn.Module):
+    def __init__():
+        #TODO
+        return
+    
+    def forward(self, x):
+        #TODO
+        return
+    
+#TODO
 class PositionalEncoding(nn.Module):
+    def __init__():
+        #TODO
+        return
+    
+    def forward(self, x):
+        #TODO
+        return
+    
+#TODO
+class LayerNormalisation(nn.Module):
     def __init__():
         #TODO
         return
@@ -58,6 +79,16 @@ class AttentionLayer(nn.Module):
     
 #TODO
 class FeedForwardBlock(nn.Module):
+    def __init__():
+        #TODO
+        return
+    
+    def forward(self, x):
+        #TODO
+        return
+    
+#TODO
+class ResidualConnection(nn.Module):
     def __init__():
         #TODO
         return
