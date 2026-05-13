@@ -386,3 +386,353 @@ class MultiHeadAttentionBlock(nn.Module):
 
         # Final Wo projection mixes head outputs back into a single d_model rep
         return self.w_o(x)
+    
+# Reference: https://github.com/hkproj/pytorch-transformer/blob/main/model.py
+# Domain agnostic again, no changes needed here. Each sublayer in the encoder (attention and FFN) 
+# is wrapped in a residual connection. This version is different from the paper since it uses a 
+# the pre-norm variant (LayerNorm applied before the sublayer, not after as in the original paper),
+# which is more stable. 
+class ResidualConnection(nn.Module):
+    """Residual connection wrapping a sublayer with pre-norm and dropout.
+
+    (B, L, d_model) -> (B, L, d_model)
+    """
+
+    def __init__(self, d_model: int, dropout: float) -> None:
+        """Build residual connection wrapper.
+
+        Parameters
+        ----------
+        d_model : int
+            Working dimension of the Transformer. Passed through to the internal LayerNorm 
+            so its scale and shift parameters are the right size.
+        dropout : float
+            Dropout probability applied to the sublayer's output before adding back to 
+            the residual stream.
+        """
+        super().__init__()
+        # Dropout applied to the sublayer's output; standard regularisation on the 
+        # contribution this block adds to the residual stream
+        self.dropout = nn.Dropout(dropout)
+
+        # LayerNorm applied to the input before the sublayer runs (pre-norm)
+        self.norm = LayerNormalisation(d_model)
+
+    def forward(self, x, sublayer):
+        """Run x through the sublayer with a residual skip and pre-norm.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input from the previous layer, shape (B, L, d_model). This is
+            the residual stream that the sublayer's output is added to.
+        sublayer : callable
+            The sublayer to wrap, e.g. attention or FFN. Called as
+            sublayer(normalised_x) and expected to return shape (B, L, d_model).
+
+        Returns
+        -------
+        torch.Tensor
+            Same shape (B, L, d_model). The original input plus the
+            dropout-regularised output of the sublayer applied to its
+            normalised version.
+        """
+        # Pre-norm residual block: normalise x, pass through sublayer, apply dropout, 
+        # then add back to the unchanged skip path for stable deep stack training.
+        return x + self.dropout(sublayer(self.norm(x)))
+    
+# Reference: https://github.com/hkproj/pytorch-transformer/blob/main/model.py
+# One repeating unit of the encoder, wires together one self-attention sublayer and one FFN 
+# sublayer, each wrapped in its own ResidualConnection. The class takes the already constructed 
+# attention and FFN blocks as arguments (rather than their hyperparameters), which makes the block 
+# composable and lets us swap in different attention or FFN variants later without touching this 
+# class. Domain agnostic, no SST specific changes are needed here. 
+class EncoderBlock(nn.Module):
+    """One encoder block: self attention sublayer + FFN sublayer, each wrapped 
+    in a ResidualConnection.
+
+    (B, L, d_model) -> (B, L, d_model)
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        self_attention_block: MultiHeadAttentionBlock,
+        feed_forward_block: FeedForwardBlock,
+        dropout: float,
+    ) -> None:
+        """Build one encoder block from pre-constructed sublayers.
+
+        Parameters
+        ----------
+        d_model : int
+            Working dimension of the Transformer. Passed through to the
+            internal ResidualConnections so their LayerNorms are sized
+            correctly.
+        self_attention_block : MultiHeadAttentionBlock
+            The attention sublayer. Already constructed externally so
+            this class doesn't need to know attention hyperparameters.
+        feed_forward_block : FeedForwardBlock
+            The FFN sublayer. Same composability reasoning as above.
+        dropout : float
+            Dropout probability for both ResidualConnections.
+        """
+        super().__init__()
+        # Store the two sublayers; each gets called inside its own residual wrapper
+        self.self_attention_block = self_attention_block
+        self.feed_forward_block = feed_forward_block
+
+        # Two residuals, one per sublayer; ModuleList registers both as submodules
+        # so their parameters show up in .parameters() and they move with .to(device)
+        self.residual_connections = nn.ModuleList(
+            [ResidualConnection(d_model, dropout) for _ in range(2)]
+        )
+
+    def forward(self, x, mask):
+        """Run x through self attention then FFN, each with a residual wrapper.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input from the previous layer (or from positional encoding for
+            the first block), shape (B, L, d_model).
+        mask : torch.Tensor or None
+            Optional attention mask. None for our encoder-only forecaster
+            since every timestep should attend to every other timestep.
+
+        Returns
+        -------
+        torch.Tensor
+            Same shape (B, L, d_model). Representation refined by one
+            round of self attention and one FFN, both residually wrapped.
+        """
+        # First sublayer: self attention, wrapped in residual
+        # The lambda adapts attention's (q, k, v, mask) signature to the 
+        # single-argument callable ResidualConnection expects
+        # For self attention, q = k = v = the same tensor
+        x = self.residual_connections[0](x, lambda x: self.self_attention_block(x, x, x, mask))
+
+        # Second sublayer: FFN, wrapped in residual
+        # No lambda needed since FFN naturally takes just x
+        x = self.residual_connections[1](x, self.feed_forward_block)
+
+        return x
+
+
+# Reference: https://github.com/hkproj/pytorch-transformer/blob/main/model.py
+# Stack of N EncoderBlocks plus a final LayerNorm. The final norm is needed because we use 
+# pre-norm, with pre-norm the residual stream itself never gets normalised after the last 
+# block, so we apply one final LayerNorm to clean up that output before whatever comes next 
+# (so the output head here). Again, mostly domain agnostic code.
+class Encoder(nn.Module):
+    """Stack of N EncoderBlocks with a final LayerNorm.
+
+    (B, L, d_model) -> (B, L, d_model)
+    """
+
+    def __init__(self, d_model: int, layers: nn.ModuleList) -> None:
+        """Build the encoder from a list of pre-constructed blocks.
+
+        Parameters
+        ----------
+        d_model : int
+            Working dimension of the Transformer. Used to size the final LayerNorm.
+        layers : nn.ModuleList
+            The encoder blocks, constructed externally. 
+        """
+        super().__init__()
+        self.layers = layers
+
+        # Final LayerNorm; only needed because we use pre-norm residuals 
+        # In pre-norm the residual stream isn't normalised after the last 
+        # sublayer, so this cleans up the output before it reaches the head
+        self.norm = LayerNormalisation(d_model)
+
+    def forward(self, x, mask):
+        """Run x through every block in sequence then apply final norm.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input from positional encoding, shape (B, L, d_model).
+        mask : torch.Tensor or None
+            Optional attention mask, passed unchanged to every block.
+
+        Returns
+        -------
+        torch.Tensor
+            Same shape (B, L, d_model). Fully encoded representation,
+            ready for the output head.
+        """
+        # Apply each encoder block in sequence; each block sees the output of the previous
+        # one and refines it further
+        for layer in self.layers:
+            x = layer(x, mask)
+
+        # Normalise
+        return self.norm(x)
+    
+# Last token decoding: take only the final timestep's encoder output and project directly 
+# to all 7 forecast horizons at once, mirroring the LSTM's decoding strategy so the temporal 
+# mechanism is the only architectural variable between the two models.
+# Note: Obviously this somewhat defeats the point of attention entirely since this throws away 
+# 89/90 of the encoder's input, but we include it as motivation for this model's predecessor; 
+# a temporal fusion transformer, and add per-horizon learned queries that cross-attend to the 
+# encoded history. 
+class OutputHead(nn.Module):
+    """Decode the last encoder timestep into a 7 day forecast grid.
+
+    (B, L, d_model) -> (B, h, H, W)
+    """
+
+    def __init__(self, d_model: int, horizon: int, height: int, width: int):
+        """Build the output head.
+
+        Parameters
+        ----------
+        d_model : int
+            Working dimension of the Transformer. Input dim of the head.
+        horizon : int
+            Number of forecast days to predict (7 for our problem).
+        height : int
+            Spatial height of the output grid (81 for Coral Sea).
+        width : int
+            Spatial width of the output grid (121 for Coral Sea).
+        """
+        super().__init__()
+        # Store dims; needed in forward() for the reshape
+        self.d_model = d_model
+        self.horizon = horizon
+        self.height = height
+        self.width = width
+
+        # Single learned linear: d_model -> horizon * H * W
+        # Symmetric with SpatialProjection at the input boundary, just in reverse
+        self.projection = nn.Linear(d_model, horizon * height * width)
+
+    def forward(self, x):
+        """Decode the encoder's final timestep into a multi horizon forecast.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Encoder output, shape (B, L, d_model). All L timesteps are present but we 
+            only use the last one. We could try and flatten-all decode but this would lead 
+            to an impractical parameter count. For example: 
+                L=90, d_model=128: 90 * 128 * 7 * 9801 = 790M...
+
+        Returns
+        -------
+        torch.Tensor
+            Forecast grids, shape (B, horizon, H, W). No activation applied;
+            outputs are raw z scored anomalies which can be positive or
+            negative.
+        """
+        # Take the final timestep's d_model vector; via self attention this summarises the 
+        # whole 90 day history from day 90's perspective
+        x = x[:, -1, :]
+
+        # Project to the flattened multi-horizon forecast
+        x = self.projection(x)
+
+        # Reshape to the (B, horizon, H, W) we use 
+        return x.view(-1, self.horizon, self.height, self.width)
+    
+class SstFlatTransformer(nn.Module):
+    """Encoder only Transformer for SST forecasting.
+
+    (B, L, 1, H, W) -> (B, h, H, W)
+    """
+
+    def __init__(
+        self,
+        height: int,
+        width: int,
+        seq_len: int = 90,
+        horizon: int = 7,
+        d_model: int = 128,
+        n_blocks: int = 2,
+        n_heads: int = 4,
+        d_ff: int = 512,
+        dropout: float = 0.1,
+    ):
+        """Build the full Transformer from its component classes.
+
+        Parameters
+        ----------
+        height : int
+            Spatial height of the SST grid (81 for Coral Sea).
+        width : int
+            Spatial width of the SST grid (121 for Coral Sea).
+        seq_len : int
+            Length of the input history window in days. Sets the size of the positional 
+            encoding table.
+        horizon : int
+            Number of forecast days to predict.
+        d_model : int
+            Working dimension of the Transformer. Used everywhere.
+        n_blocks : int
+            Number of stacked EncoderBlocks in the Encoder.
+        n_heads : int
+            Number of attention heads per MultiHeadAttentionBlock. Must divide d_model.
+        d_ff : int
+            Hidden dim inside each FeedForwardBlock
+        dropout : float
+            Dropout probability used in positional encoding, attention, FFN, and residual
+            connections.
+        """
+        super().__init__()
+
+        # Input boundary: flattened grid (H*W) projected to d_model
+        self.input_projection = SpatialProjection(d_model, height, width)
+
+        # Positional encoding added after the input projection; tells the model where each 
+        # timestep sits in the 90 day window
+        self.positional_encoding = PositionalEncoding(d_model, seq_len, dropout)
+
+        # Build n_blocks identical EncoderBlocks, each with its own freshly constructed 
+        # MultiHeadAttentionBlock and FeedForwardBlock so weights aren't shared 
+        encoder_blocks = nn.ModuleList([
+            EncoderBlock(
+                d_model,
+                MultiHeadAttentionBlock(d_model, n_heads, dropout),
+                FeedForwardBlock(d_model, d_ff, dropout),
+                dropout,
+            )
+            for _ in range(n_blocks)
+        ])
+        self.encoder = Encoder(d_model, encoder_blocks)
+
+        # Output boundary; last timestep's d_model vector -> 7 day forecast grid
+        self.output_head = OutputHead(d_model, horizon, height, width)
+
+    def forward(self, x):
+        """Run a batch of SST history windows through the full Transformer.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input SST windows, shape (B, L, 1, H, W). Matches the contract
+            used by SstWindowDataset and the rest of the pipeline.
+
+        Returns
+        -------
+        torch.Tensor
+            Forecast grids, shape (B, horizon, H, W).
+        """
+        # Flatten grid and project to d_model space
+        # (B, L, 1, H, W) -> (B, L, d_model)
+        x = self.input_projection(x)
+
+        # (B, L, d_model) -> (B, L, d_model)
+        x = self.positional_encoding(x)
+
+        # Stack of self attention + FFN blocks
+        # (B, L, d_model) -> (B, L, d_model)
+        x = self.encoder(x, mask=None)
+
+        # Decode the last timestep into a multi horizon forecast
+        # (B, L, d_model) -> (B, horizon, H, W)
+        x = self.output_head(x)
+
+        return x
