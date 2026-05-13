@@ -107,27 +107,7 @@ class InformerDecoder(nn.Module):
         return
     
 #TODO
-class EncoderLayer(nn.Module):
-    def __init__():
-        #TODO
-        return
-    
-    def forward(self, x):
-        #TODO
-        return
-    
-#TODO
 class ProjectionHead(nn.Module):
-    def __init__():
-        #TODO
-        return
-    
-    def forward(self, x):
-        #TODO
-        return
-    
-#TODO
-class EncoderLayer(nn.Module):
     def __init__():
         #TODO
         return
