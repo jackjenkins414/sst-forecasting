@@ -16,16 +16,6 @@ class SpatialTokenEmbedding(nn.Module):
         return
     
 #TODO
-class TemporalEmbedding(nn.Module):
-    def __init__():
-        #TODO
-        return
-    
-    def forward(self, x):
-        #TODO
-        return
-    
-#TODO
 class PositionalEncoding(nn.Module):
     def __init__():
         #TODO
