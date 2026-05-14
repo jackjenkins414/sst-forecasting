@@ -190,33 +190,72 @@ class LayerNormalisation(nn.Module):
         # standard layernorm formula
         return self.alpha * (x - mean) / (std + self.eps) + self.bias
     
-#TODO: Add comments. 
+#TODO: Add head comment. 
 class ProbSparseAttention(nn.Module):
+    """ProbSparse Informer attention.
+
+    Selects the top-u queries by sparsity measurement to compute attention, 
+    reducing complexity from O(L^2) to O(L log L). 
+
+    (B, L, d_model) -> (B, u, d_model)
+    """
     def __init__(self, dropout, factor):
+        """Build the ProbSparse attention module.
+
+        Parameters
+        ----------
+        d_model : int
+            Working dimension of the Transformer. Must be divisible by h.
+        dropout : float
+            Dropout probability applied to attention weights after softmax.
+        factor : float
+            Controls how many queries are selected. 
+        """
         super.__init__()
         self.dropout = nn.Dropout(dropout)
         self.factor = factor
     
     def forward(self, Q, K, V):
-        _, _, L, D = Q.shape
+        """Compute ProbSparse attention.
 
+        Parameters
+        ----------
+        Q, K, V : torch.Tensor
+            Query, key, value tensors.
+            All of shape (B, L, d_model).
+
+        Returns
+        ----------
+        torch.Tensor
+            Shape (B, u, d_model). 
+            Attention output after selecting the top-u queries.
+        """
+        _, L, D = Q.shape
+
+        # Basic scaled dot-product attention. 
         scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(D)
 
+        # Importance calculation per the paper (#TODO: ADD DIRECT REFERENCE)
         importance = torch.logsumexp(scores, dim=-1) - scores.max(dim=-1).values
 
+        # The number of queries to keep (the core ProbSparse mechanism).
         u = min((self.factor * int(math.log(L))), L)
+        # Indices of the top-u queries. 
         top_u_indices = importance.topk(u, dim=-1)[1]
 
+        # The selected top-u queries. 
         Q_top = torch.gather(
             Q, 
             dim=2, 
-            index=(top_u_indices.unsqueeze(-1).expand(-1, -1, -1, D))
+            index=(top_u_indices.unsqueeze(-1).expand(-1, -1, D))
         )
 
+        # Full attention computation for the selected queries. 
         attn_scores = torch.matmul(Q_top, K.transpose(-2, -1)) / math.sqrt(D)
         attn_weights = torch.softmax(attn_scores, dim=-1)
         attn_weights = self.dropout(attn_weights)
 
+        # Weighted sum over values. 
         return torch.matmul(attn_weights, V)
     
 #TODO
