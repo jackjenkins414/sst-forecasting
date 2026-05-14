@@ -236,6 +236,7 @@ class ProbSparseAttention(nn.Module):
         scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(D)
 
         # Importance calculation per the paper (#TODO: ADD DIRECT REFERENCE)
+        # TODO: Review MaxMean vs LogSumExp to determine correct implementation. 
         importance = torch.logsumexp(scores, dim=-1) - scores.max(dim=-1).values
 
         # The number of queries to keep (the core ProbSparse mechanism).
@@ -467,25 +468,90 @@ class ResidualConnection(nn.Module):
         # stable deep stack training.
         return x + self.dropout(sublayer(self.norm(x)))
     
-#TODO
+#TODO: Comments
 class EncoderLayer(nn.Module):
-    def __init__():
-        #TODO
-        return
-    
+    """A single encoder layer for the Informer.
+
+    Combines ProbSparse self-attention and feed-forward with 
+    residual connections and layer normalisation.
+
+    (B, L, d_model) -> (B, L, d_model)
+    """
+    def __init__(self, attn, ff, d_model, dropout):
+        """Initialises the encoder layer.
+
+        Parameters
+        ----------
+        attn : nn.Module
+            Self-attention module (ProbSparse or full attention).
+        ff : nn.Module
+            Feed-Forward block.
+        d_model : int
+            Working dimension of the Informer.
+        dropout : float
+            Dropout probability for residual connections.
+        """
+        super().__init__()
+        self.attn = attn
+        self.ff = ff
+
+        self.res1 = ResidualConnection(d_model, dropout)
+        self.res2 = ResidualConnection(d_model, dropout)
+
     def forward(self, x):
-        #TODO
-        return
+        """Completes a forward pass through the encoder layer. 
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input from the previous layer (or from positional encoding for
+            the first block) of shape (B, L, d_model).
+
+        Returns
+        -------
+        torch.Tensor
+            Shape: (B, L, d_model). 
+        """
+        x = self.res1(x, self.attn)
+        x = self.res2(x, self.ff)
+        return x
     
 #TODO
 class EncoderDistillation(nn.Module):
-    def __init__():
-        #TODO
-        return
-    
+    """Self attention distillation in line with the Informer paper. 
+    Reduces sequence length by factor of 2.
+
+    (B, L, d_model) -> (B, L//2, d_model)
+    """
+    def __init__(self, d_model):
+        """Build distillation layer.
+
+        Parameters
+        ----------
+        d_model : int
+            Dimension of input/output embeddings (working dim of the Informer).
+        """
+        super().__init__()
+        # 1D Convolution with Stride Length 2 to halve the sequence length. 
+        self.conv = nn.Conv1d(d_model, d_model, kernel_size=3, stride=2, padding=1)
+        self.elu = nn.ELU()
+        self.pool = nn.MaxPool1d(kernel_size=2, stride=2, padding=0)
+
     def forward(self, x):
-        #TODO
-        return
+        """Complete a distillation.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input from the previous layer of shape (B, L, d_model).
+        """
+        # Transpose L and d_model for Conv and MaxPool.
+        x = x.transpose(1, 2)
+        x = self.conv(x)
+        x = self.elu(x)
+        x = self.pool(x)
+        # Restore transposition. 
+        return x.transpose(1, 2)
     
 #TODO
 class InformerEncoder(nn.Module):
