@@ -142,16 +142,6 @@ class PositionalEncoding(nn.Module):
         # Dropout on the combined embedding+position signal; regularisation as per paper
         return self.dropout(x)
     
-#TODO
-class DataEmbedding(nn.Module):
-    def __init__():
-        #TODO
-        return
-    
-    def forward(self, x):
-        #TODO
-        return
-    
 # Imported from Jack's Transformer model.
 class LayerNormalisation(nn.Module):
     def __init__(self, d_model: int, eps: float = 10**-6) -> None:
