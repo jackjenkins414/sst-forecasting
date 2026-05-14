@@ -190,27 +190,34 @@ class LayerNormalisation(nn.Module):
         # standard layernorm formula
         return self.alpha * (x - mean) / (std + self.eps) + self.bias
     
-#TODO
+#TODO: Add comments. 
 class ProbSparseAttention(nn.Module):
-    def __init__():
-        #TODO
-        return
+    def __init__(self, dropout, factor):
+        super.__init__()
+        self.dropout = nn.Dropout(dropout)
+        self.factor = factor
     
-    def forward(self, x):
-        #TODO
-        return
-    
-    def prob_QK():
-        #TODO
-        return
-    
-    def get_initial_context():
-        #TODO
-        return
-    
-    def update_context():
-        #TODO
-        return
+    def forward(self, Q, K, V):
+        _, _, L, D = Q.shape
+
+        scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(D)
+
+        importance = torch.logsumexp(scores, dim=-1) - scores.max(dim=-1).values
+
+        u = min((self.factor * int(math.log(L))), L)
+        top_u_indices = importance.topk(u, dim=-1)[1]
+
+        Q_top = torch.gather(
+            Q, 
+            dim=2, 
+            index=(top_u_indices.unsqueeze(-1).expand(-1, -1, -1, D))
+        )
+
+        attn_scores = torch.matmul(Q_top, K.transpose(-2, -1)) / math.sqrt(D)
+        attn_weights = torch.softmax(attn_scores, dim=-1)
+        attn_weights = self.dropout(attn_weights)
+
+        return torch.matmul(attn_weights, V)
     
 #TODO
 class SelfAttentionLayer(nn.Module):
