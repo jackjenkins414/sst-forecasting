@@ -5,7 +5,7 @@
 import torch
 import torch.nn as nn
 
-#TODO: Check whether flattening is needed for this model. Eval different options. 
+#TODO
 class SpatialTokenEmbedding(nn.Module):
     def __init__():
         #TODO
