@@ -258,25 +258,116 @@ class ProbSparseAttention(nn.Module):
         # Weighted sum over values. 
         return torch.matmul(attn_weights, V)
     
-#TODO
+#TODO: Comments
 class SelfAttentionLayer(nn.Module):
-    def __init__():
-        #TODO
-        return
-    
-    def forward(self, x):
-        #TODO
-        return
+    """ProbSparse Informer self-attention layer.
 
-#TODO
-class CrossAttentionLayer(nn.Module):
-    def __init__():
-        #TODO
-        return
+    Implements the ProbSparse attention mechanism for efficient self-attention. 
+
+    # TODO: Confirm if this is L or u. 
+    (B, L, d_model) -> (B, L, d_model)
+    """
+    def __init__(self, d_model, n_heads, dropout, factor):
+        """Build the attention.
+
+        Parameters
+        ----------
+        d_model : int
+            Working dimension of the Informer. Must be divisible by n_heads.
+        h_heads : int
+            Number of attention heads. Each head sees d_model // h dims.
+        dropout : float
+            Dropout probability applied to attention weights after softmax.
+        """
+        super().__init__()
+        self.h = n_heads
+        self.d_k = d_model // n_heads
+
+        self.q = nn.Linear(d_model, d_model)
+        self.k = nn.Linear(d_model, d_model)
+        self.v = nn.Linear(d_model, d_model)
+        self.proj = nn.Linear(d_model, d_model)
+        self.attn = ProbSparseAttention(dropout, factor)
     
     def forward(self, x):
-        #TODO
-        return
+        """Compute self-attention on input sequence.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input of shape (B, L, d_model)
+
+        Returns
+        -------
+        torch.Tensor
+            Output of shape (B, L, d_model)
+        """
+        B, L, _ = x.shape
+
+        # Project and reshape. 
+        Q = self.q(x).view(B, L, self.h, self.d_k).transpose(1, 2)
+        K = self.k(x).view(B, L, self.h, self.d_k).transpose(1, 2)
+        V = self.v(x).view(B, L, self.h, self.d_k).transpose(1, 2)
+
+        # Apply ProbSparse attention. 
+        out = self.attn(Q, K, V).transpose(1, 2).contiguous().view(B, L, -1)
+
+        return self.proj(out)
+
+#TODO: Comments
+class CrossAttentionLayer(nn.Module):
+    """Multihead cross-attention layer.
+
+    (B, L, d_model) -> (B, L, d_model)
+    """
+    def __init__(self, d_model, n_heads):
+        """Build the multi-head attention block.
+
+        Parameters
+        ----------
+        d_model : int
+            Working dimension of the Informer. Must be divisible by n_heads.
+        n_heads : int
+            Number of attention heads. Each head sees d_model // n_heads dims.
+        """
+        super().__init__()
+        self.h = n_heads
+        self.d_k = d_model // n_heads
+
+        self.q = nn.Linear(d_model, d_model)
+        self.k = nn.Linear(d_model, d_model)
+        self.v = nn.Linear(d_model, d_model)
+        self.proj = nn.Linear(d_model, d_model)
+    
+    def forward(self, x, mem):
+        """Run multi-head cross-attention.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Shape: (B, L, d_model). Query sequence.
+        mem : torch.Tensor
+            Shape: (B, S, d_model). Encoder memory.
+
+        Returns
+        -------
+        torch.Tensor
+            Shape: (B, L, d_model).
+        """
+        B, L, _ = x.shape
+
+        # Project and reshape.
+        Q = self.q(x).view(B, L, self.h, self.d_k).transpose(1, 2)
+        K = self.k(mem).view(B, mem.size(1), self.h, self.d_k).transpose(1, 2)
+        V = self.v(mem).view(B, mem.size(1), self.h, self.d_k).transpose(1, 2)
+
+        # Compute scaled dot product attention, apply softmax,
+        # get weighted sum, recombine heads. 
+        scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(self.d_k)
+        weights = torch.softmax(scores, dim=-1)
+        out = torch.matmul(weights, V).transpose(1, 2).contiguous().view(B, L, -1)
+
+        return self.proj(out)
     
 # Designed based on Jack's Transformer model.
 # Initial inspiration: https://github.com/hkproj/pytorch-transformer/blob/main/model.py
