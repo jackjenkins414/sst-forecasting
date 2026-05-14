@@ -6,15 +6,62 @@ import torch
 import torch.nn as nn
 import math
 
-#TODO
-class SpatialTokenEmbedding(nn.Module):
-    def __init__():
-        #TODO
-        return
+#TODO: Add head comment.
+class CNNSpatialEncoding(nn.Module):
+    """
+    CNN-based spatial feature extractor for SST grids.
+
+    (B, L, 1, H, W) -> (B, L, d_model)
+    """
+    def __init__(self, d_model: int):
+        """Build the CNN-based spatial encoder.
+
+        Parameters
+        ----------
+        d_model : int
+            Working dimension of the Informer. The CNN compresses
+            each spatial grid into a d_model-dimensional vector. 
+        """
+        super.__init__()
+        self.cnn = nn.Sequential(
+            # NOTE: Choice of 32 output channels is arbitrary, find optimal value. 
+            # TODO: Figure out whether or not to pad. 
+            # Extract low-level spatial patterns. 
+            nn.Conv2d(1, 32, kernel_size=3, padding=1), 
+            nn.ReLU(), 
+            # Extract higher-level curvatures and pooling patterns. 
+            nn.Conv2d(32, 64, kernel_size=3, padding=1), 
+            nn.ReLU(),
+            # Collapse H*W to a global 1*1 aggregate. 
+            nn.AdaptiveAvgPool2d(1), 
+            # Flatten [64, 1, 1] to [64] (vector per timestep). 
+            nn.Flatten(),
+            # Map a projection to d_model. 
+            nn.Linear(64, d_model)
+        )
     
     def forward(self, x):
-        #TODO
-        return
+        """Encode each timestep's SST grid into a d_model vector.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input SST sequences, shape (B, L, 1, H, W).
+            B = batch size, L = sequence length (90 days),
+            1 = C = channel dim, H, W = spatial grid.
+
+        Returns
+        -------
+        torch.Tensor
+            CNN-encoded tensor of shape (B, L, d_model).
+        """
+        B, L, C, H, W = x.shape
+        # Merge batch and time for independent timestep processing. 
+        x = x.view(B * L, C, H, W)
+        # Apply CNN encoder to each timestep. 
+        x = self.cnn(x)
+        # Restore structure: (B*L, d_model) -> (B, L, d_model)
+        return x.view(B, L, -1)
     
 # Imported from Jack's Transformer model. 
 class PositionalEncoding(nn.Module):
@@ -195,7 +242,7 @@ class CrossAttentionLayer(nn.Module):
         #TODO
         return
     
-# Imported from Jack's Transformer model.
+# Designed based on Jack's Transformer model.
 # Initial inspiration: https://github.com/hkproj/pytorch-transformer/blob/main/model.py
 class FeedForwardBlock(nn.Module):
     """Position wise feed-forward network.
