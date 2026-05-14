@@ -555,13 +555,52 @@ class EncoderDistillation(nn.Module):
     
 #TODO
 class InformerEncoder(nn.Module):
-    def __init__():
-        #TODO
-        return
-    
+    """Informer encoder stack with ProbSparse self-attention and distillation.
+
+    A (#NOTE: ONCE COMPLETED) strict implementation of the paper's ProbSparse
+    encoding methodology. 
+
+    (B, L, d_model) -> (B, L, d_model)
+    """
+    # TODO: See whether to use ModuleList or just an int for no of layers. 
+    def __init__(self, layers: list[nn.Module], d_model: int):
+        """Construct the encoder stack.
+
+        Parameters
+        ----------
+        # TODO: See whether to use ModuleList or just an int for no of layers. 
+        layers : list[nn.Module]
+            A list of encoder layers. Each layer is expected to implement
+            ProbSparse self-attention and feed-forward with residuals.
+        d_model : int
+            Working dimension of the encoder. 
+        """
+        super().__init__()
+        # TODO: See whether to use ModuleList or just an int for no of layers. 
+        self.layers = nn.ModuleList(layers)
+        self.norm = LayerNormalisation(d_model)
+        self.distill = EncoderDistillation(d_model)
+
     def forward(self, x):
-        #TODO
-        return
+        """Forward pass through the encoder stack.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input tensor of shape (B, L, d_model).
+
+        Returns
+        -------
+        torch.Tensor
+            Encoder output of shape (B, L_new, d_model), with L_new <= L 
+            if distillation reduces sequence length.
+        """
+        for i, layer in enumerate(self.layers):
+            x = layer(x)
+            # Apply distillation after every two layers.
+            if ((i % 2) == 1):
+                x = self.distill(x)
+        return self.norm(x)
     
 #TODO
 class DecoderLayer(nn.Module):
