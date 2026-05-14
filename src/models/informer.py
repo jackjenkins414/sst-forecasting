@@ -5,8 +5,8 @@
 import torch
 import torch.nn as nn
 
-#TODO
-class SpatialProjection(nn.Module):
+#TODO: Check whether flattening is needed for this model. Eval different options. 
+class SpatialTokenEmbedding(nn.Module):
     def __init__():
         #TODO
         return
@@ -27,6 +27,16 @@ class TemporalEmbedding(nn.Module):
     
 #TODO
 class PositionalEncoding(nn.Module):
+    def __init__():
+        #TODO
+        return
+    
+    def forward(self, x):
+        #TODO
+        return
+    
+#TODO
+class DataEmbedding(nn.Module):
     def __init__():
         #TODO
         return
@@ -109,6 +119,16 @@ class ResidualConnection(nn.Module):
     
 #TODO
 class EncoderLayer(nn.Module):
+    def __init__():
+        #TODO
+        return
+    
+    def forward(self, x):
+        #TODO
+        return
+    
+#TODO
+class EncoderDistillation(nn.Module):
     def __init__():
         #TODO
         return
