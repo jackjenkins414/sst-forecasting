@@ -400,18 +400,72 @@ class FeedForwardBlock(nn.Module):
         )
 
     def forward(self, x):
-        # TODO: Update comments. 
+        """Apply the FFN independently to each timestep.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input tensor, shape (B, L, d_model). One d_model vector per
+            timestep per batch element.
+
+        Returns
+        -------
+        torch.Tensor
+            Same shape (B, L, d_model). Each timestep's vector has been
+            transformed by the same FFN weights, independently.
+        """ 
         return self.seq(x)
     
-#TODO
+# Imported from Jack's Transformer model.
 class ResidualConnection(nn.Module):
-    def __init__():
-        #TODO
-        return
-    
-    def forward(self, x):
-        #TODO
-        return
+    """Residual connection wrapping a sublayer with pre-norm and dropout.
+
+    (B, L, d_model) -> (B, L, d_model)
+    """
+
+    def __init__(self, d_model: int, dropout: float) -> None:
+        """Build residual connection wrapper.
+
+        Parameters
+        ----------
+        d_model : int
+            Working dimension of the Informer. Passed through to the internal 
+            LayerNorm so its scale and shift parameters are the right size.
+        dropout : float
+            Dropout probability applied to the sublayer's output before adding 
+            back to the residual stream.
+        """
+        super().__init__()
+        # Dropout applied to the sublayer's output; standard regularisation on 
+        # the contribution this block adds to the residual stream
+        self.dropout = nn.Dropout(dropout)
+
+        # LayerNorm applied to the input before the sublayer runs (pre-norm)
+        self.norm = LayerNormalisation(d_model)
+
+    def forward(self, x, sublayer):
+        """Run x through the sublayer with a residual skip and pre-norm.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input from the previous layer, shape (B, L, d_model). This is
+            the residual stream that the sublayer's output is added to.
+        sublayer : callable
+            The sublayer to wrap, e.g. attention or FFN. Called as
+            sublayer(normalised_x) and expected to return shape (B, L, d_model).
+
+        Returns
+        -------
+        torch.Tensor
+            Same shape (B, L, d_model). The original input plus the
+            dropout-regularised output of the sublayer applied to its
+            normalised version.
+        """
+        # Pre-norm residual block: normalise x, pass through sublayer, 
+        # apply dropout, then add back to the unchanged skip path for 
+        # stable deep stack training.
+        return x + self.dropout(sublayer(self.norm(x)))
     
 #TODO
 class EncoderLayer(nn.Module):
