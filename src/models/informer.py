@@ -230,9 +230,8 @@ class ProbSparseAttention(nn.Module):
             Shape (B, L, d_model). 
             Attention output after selecting the top-u queries.
         """
-        _, _, L, D = Q.shape
+        B, H, L, D = Q.shape
 
-        # Basic scaled dot-product attention. 
         scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(D)
 
         # Importance calculation per the paper (#TODO: ADD DIRECT REFERENCE)
@@ -247,20 +246,28 @@ class ProbSparseAttention(nn.Module):
         # Indices of the top-u queries. 
         top_u_indices = importance.topk(u, dim=-1)[1]
 
-        # The selected top-u queries. 
+        # The selected top-u queries.
         Q_top = torch.gather(
-            Q, 
-            dim=2, 
-            index=(top_u_indices.unsqueeze(-1).expand(-1, -1, -1, D))
+            Q,
+            dim=2,
+            index=top_u_indices.unsqueeze(-1).expand(-1, -1, -1, D)
         )
 
         # Full attention computation for the selected queries. 
         attn_scores = torch.matmul(Q_top, K.transpose(-2, -1)) / math.sqrt(D)
         attn_weights = torch.softmax(attn_scores, dim=-1)
         attn_weights = self.dropout(attn_weights)
+        attn_out = torch.matmul(attn_weights, V)
 
-        # Weighted sum over values. 
-        return torch.matmul(attn_weights, V)
+        # Bug fix - create full length context tensor with original query positions. 
+        context = torch.zeros_like(Q)
+        context.scatter_(
+            dim=2,
+            index=top_u_indices.unsqueeze(-1).expand(-1, -1, -1, D),
+            src=attn_out
+        )
+
+        return context
     
 #TODO: Comments
 class SelfAttentionLayer(nn.Module):
