@@ -22,7 +22,7 @@ class CNNSpatialEncoding(nn.Module):
             Working dimension of the Informer. The CNN compresses
             each spatial grid into a d_model-dimensional vector. 
         """
-        super.__init__()
+        super().__init__()
         self.cnn = nn.Sequential(
             # NOTE: Choice of 32 output channels is arbitrary, find optimal value. 
             # TODO: Figure out whether or not to pad. 
@@ -211,7 +211,7 @@ class ProbSparseAttention(nn.Module):
         factor : float
             Controls how many queries are selected. 
         """
-        super.__init__()
+        super().__init__()
         self.dropout = nn.Dropout(dropout)
         self.factor = factor
     
@@ -683,6 +683,8 @@ class ProjectionHead(nn.Module):
   
 #TODO
 class ProbSparseInformer(nn.Module):
+    """ProbSparse Attention Informer for SST forecasting
+    """
     def __init__():
         #TODO
         return
