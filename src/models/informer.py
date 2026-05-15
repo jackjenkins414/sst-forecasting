@@ -197,7 +197,7 @@ class ProbSparseAttention(nn.Module):
     Selects the top-u queries by sparsity measurement to compute attention, 
     reducing complexity from O(L^2) to O(L log L). 
 
-    (B, L, d_model) -> (B, u, d_model)
+    (B, L, d_model) -> (B, L, d_model)
     """
     def __init__(self, dropout, factor):
         """Build the ProbSparse attention module.
@@ -227,10 +227,10 @@ class ProbSparseAttention(nn.Module):
         Returns
         ----------
         torch.Tensor
-            Shape (B, u, d_model). 
+            Shape (B, L, d_model). 
             Attention output after selecting the top-u queries.
         """
-        _, L, D = Q.shape
+        _, _, L, D = Q.shape
 
         # Basic scaled dot-product attention. 
         scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(D)
@@ -240,7 +240,8 @@ class ProbSparseAttention(nn.Module):
         importance = torch.logsumexp(scores, dim=-1) - scores.max(dim=-1).values
 
         # The number of queries to keep (the core ProbSparse mechanism).
-        u = min((self.factor * int(math.log(L))), L)
+        # Added safety to ensure that u is never 0. 
+        u = min(max(1, int(self.factor * math.log(L))), L)
         # Indices of the top-u queries. 
         top_u_indices = importance.topk(u, dim=-1)[1]
 
@@ -248,7 +249,7 @@ class ProbSparseAttention(nn.Module):
         Q_top = torch.gather(
             Q, 
             dim=2, 
-            index=(top_u_indices.unsqueeze(-1).expand(-1, -1, D))
+            index=(top_u_indices.unsqueeze(-1).expand(-1, -1, -1, D))
         )
 
         # Full attention computation for the selected queries. 
@@ -619,7 +620,7 @@ class DecoderLayer(nn.Module):
         x = self.res1(x, self.self_attn)
 
         # Cross-attention to the encoder output.
-        x = self.res2(x, self.cross_attn(x, memory))
+        x = self.res2(x, lambda x: self.cross_attn(x, memory))
 
         # Feed-Forward block
         x = self.res3(x, self.ff)
@@ -788,7 +789,7 @@ class ProbSparseInformer(nn.Module):
         B = x.shape[0]
 
         # Run the encoding. 
-        x = self.spatial_proj(x)
+        x = self.spatial_enc(x)
         x = self.pos_enc(x)
         encoder_out = self.encoder(x)
 
