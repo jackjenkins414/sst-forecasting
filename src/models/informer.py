@@ -627,13 +627,45 @@ class DecoderLayer(nn.Module):
     
 #TODO
 class InformerDecoder(nn.Module):
-    def __init__():
-        #TODO
-        return
-    
-    def forward(self, x):
-        #TODO
-        return
+    # TODO: See whether to use ModuleList or just an int for no of layers.
+    def __init__(self, layers: list[nn.Module], d_model: int):
+        """Construct the decoder stack.
+
+        Parameters
+        ----------
+        # TODO: See whether to use ModuleList or just an int for no of layers. 
+        layers : list[nn.Module]
+            A list of decoder layers. Each layer does self-attn -> cross-attn
+            -> feed-forward with residuals. 
+        d_model : int
+            Working dimension of the decoder. 
+        """
+        super().__init__()
+        # TODO: See whether to use ModuleList or just an int for no of layers.
+        self.layers = nn.ModuleList(layers)
+        self.norm = LayerNormalisation(d_model)
+
+    def forward(self, x, memory):
+        """Pass input through decoder stack.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Decoder input tensor of shape (B, L_dec, d_model).
+        memory : torch.Tensor
+            Encoder output tensor of shape (B, L_enc, d_model). Used for
+            cross-attention to inject encoder information into the decoder.
+
+        Returns
+        -------
+        torch.Tensor
+            Shape: (B, L_dec, d_model). Each position contains the
+            decoder's final representation (ready for projection).
+        """
+        # TODO: See whether to use ModuleList or just an int for no of layers.
+        for layer in self.layers:
+            x = layer(x, memory)
+        return self.norm(x)
     
 #TODO
 class ProjectionHead(nn.Module):
