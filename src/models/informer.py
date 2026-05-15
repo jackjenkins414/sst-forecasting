@@ -602,15 +602,28 @@ class InformerEncoder(nn.Module):
                 x = self.distill(x)
         return self.norm(x)
     
-#TODO
+#TODO: Head """ Comments
 class DecoderLayer(nn.Module):
-    def __init__():
-        #TODO
-        return
-    
-    def forward(self, x):
-        #TODO
-        return
+    def __init__(self, self_attn, cross_attn, ff, d_model, dropout):
+        super().__init__()
+        self.self_attn = self_attn
+        self.cross_attn = cross_attn
+        self.ff = ff
+
+        self.res1 = ResidualConnection(d_model, dropout)
+        self.res2 = ResidualConnection(d_model, dropout)
+        self.res3 = ResidualConnection(d_model, dropout)
+
+    def forward(self, x, memory):
+        # Self-attention over the decoder input. 
+        x = self.res1(x, self.self_attn)
+
+        # Cross-attention to the encoder output.
+        x = self.res2(x, self.cross_attn(x, memory))
+
+        # Feed-Forward block
+        x = self.res3(x, self.ff)
+        return x
     
 #TODO
 class InformerDecoder(nn.Module):
