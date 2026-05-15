@@ -666,8 +666,7 @@ class InformerDecoder(nn.Module):
         for layer in self.layers:
             x = layer(x, memory)
         return self.norm(x)
-    
-#TODO
+
 class OutputProjectionHead(nn.Module):
     """Linearly project d_model to reshape to H*W SST grid. 
 
@@ -682,9 +681,8 @@ class OutputProjectionHead(nn.Module):
     def forward(self, x):
         x = self.proj(x)
         return x.view(x.size(0), x.size(1), self.H, self.W)
-
   
-#TODO
+#TODO: Verify, and update comments to explicitly state structuring. 
 class ProbSparseInformer(nn.Module):
     """ProbSparse Attention Informer for SST forecasting. 
 
@@ -771,8 +769,37 @@ class ProbSparseInformer(nn.Module):
         self.dec_input_init = nn.Parameter(torch.zeros(1, horizon, d_model))
 
         # Projection from decoder output to the SST grid.
-        self.proj_head = OutputProjectionHead(d_model, (height*width))
+        self.proj_head = OutputProjectionHead(d_model, height, width)
     
     def forward(self, x):
-        #TODO
-        return
+        """Run a batch of SST history windows through the Informer.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input SST windows, shape (B, L, 1, H, W). Matches the contract
+            used by SstWindowDataset and the rest of the pipeline.
+
+        Returns
+        -------
+        torch.Tensor
+            Forecast grids of shape (B, horizon, H, W).
+        """
+        B = x.shape[0]
+
+        # Run the encoding. 
+        x = self.spatial_proj(x)
+        x = self.pos_enc(x)
+        encoder_out = self.encoder(x)
+
+        # Initialise the decoder input. 
+        decoder_in = self.dec_input_init.expand(B, -1, -1)
+
+        # Run the decoding. 
+        decoder_out = self.decoder(decoder_in, encoder_out)
+
+        # Project to the grid. 
+        pred = self.proj_head(decoder_out)
+
+        # Return the predictions. 
+        return pred
