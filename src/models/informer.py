@@ -669,13 +669,16 @@ class InformerDecoder(nn.Module):
     
 #TODO
 class ProjectionHead(nn.Module):
-    def __init__():
-        #TODO
-        return
-    
+    """Linear projection from encoder output to decoder input space.
+
+    (B, L, d_model) -> (B, L, d_proj)
+    """
+    def __init__(self, d_model, d_proj):
+        super().__init__()
+        self.proj = nn.Linear(d_model, d_proj)
+
     def forward(self, x):
-        #TODO
-        return
+        return self.proj(x)
 
   
 #TODO
