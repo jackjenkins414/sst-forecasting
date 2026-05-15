@@ -237,6 +237,7 @@ class ProbSparseAttention(nn.Module):
 
         # Importance calculation per the paper (#TODO: ADD DIRECT REFERENCE)
         # TODO: Review MaxMean vs LogSumExp to determine correct implementation. 
+        # Currently using MaxMean based on https://github.com/zhouhaoyi/Informer2020/blob/main/models/attn.py
         # LogSumExp: importance = torch.logsumexp(scores, dim=-1) - scores.max(dim=-1).values
         importance = scores.max(dim=-1).values - scores.mean(dim=-1)
 
