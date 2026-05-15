@@ -81,7 +81,6 @@ def main():
     land_mask_torch = torch.from_numpy(land_mask_np).to(device)
 
     print("CUDA available:", torch.cuda.is_available())
-    print("Device:", next(model.parameters()).device)
 
     informer_model = ProbSparseInformer(
         height=H,
@@ -96,6 +95,7 @@ def main():
         dropout=DROPOUT,
         factor=FACTOR,
     ).to(device)
+    print("Device:", next(informer_model.parameters()).device)
 
     informer_params = sum(p.numel() for p in informer_model.parameters())
     print(f"ProbSparse Informer model parameters: {informer_params:,}")
@@ -174,6 +174,7 @@ def main():
         num_layers=NUM_LAYERS,
         dropout=DROPOUT,
     ).to(device)
+    print("Device:", next(rnn_model.parameters()).device)
 
     n_rnn_params = sum(p.numel() for p in rnn_model.parameters())
     print(f"Model parameters: {n_rnn_params:,}")
