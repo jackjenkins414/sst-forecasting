@@ -1,6 +1,6 @@
-# TODO: This currently is only a framework. Code and comments will be added 
-#       in due course. 
 # Based on: https://arxiv.org/pdf/2012.07436
+# TODO: Update to ensure it matches the paper strictly. 
+# TODO: Get review regarding correctness. 
 
 import torch
 import torch.nn as nn
