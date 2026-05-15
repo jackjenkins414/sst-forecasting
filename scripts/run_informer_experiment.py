@@ -80,6 +80,9 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     land_mask_torch = torch.from_numpy(land_mask_np).to(device)
 
+    print("CUDA available:", torch.cuda.is_available())
+    print("Device:", next(model.parameters()).device)
+
     informer_model = ProbSparseInformer(
         height=H,
         width=W,
