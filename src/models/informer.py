@@ -237,7 +237,8 @@ class ProbSparseAttention(nn.Module):
 
         # Importance calculation per the paper (#TODO: ADD DIRECT REFERENCE)
         # TODO: Review MaxMean vs LogSumExp to determine correct implementation. 
-        importance = torch.logsumexp(scores, dim=-1) - scores.max(dim=-1).values
+        # LogSumExp: importance = torch.logsumexp(scores, dim=-1) - scores.max(dim=-1).values
+        importance = scores.max(dim=-1).values - scores.mean(dim=-1)
 
         # The number of queries to keep (the core ProbSparse mechanism).
         # Added safety to ensure that u is never 0. 
