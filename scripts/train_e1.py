@@ -59,12 +59,12 @@ import zarr
 from torch.optim import Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader, Subset
+from torch.cuda.amp import GradScaler
 
 # ── Project imports ──────────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from sst_forecasting.data.dataset import SSTWindowDataset
 from sst_forecasting.models.lstm import SpatialFlatLSTM
-from sst_forecasting.models.transformer import SpatialFlatTransformer
 from sst_forecasting.models.convlstm import SpatialConvLSTM
 from sst_forecasting.utils.metrics import rmse as rmse_metric
 
@@ -75,7 +75,7 @@ from sst_forecasting.utils.metrics import rmse as rmse_metric
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Train E1 LSTM or Transformer on Coral Sea OISST."
+        description="Train E1 LSTM or ConvLSTM on Coral Sea OISST."
     )
     # Data
     p.add_argument("--zarr-path", default="data/processed/oisst_coralsea.zarr",
@@ -86,17 +86,12 @@ def _parse_args() -> argparse.Namespace:
                    help="Context window L in days.")
 
     # Model
-    p.add_argument("--model", choices=["lstm", "transformer", "convlstm"], required=True,
+    p.add_argument("--model", choices=["lstm", "convlstm"], required=True,
                    help="Model architecture.")
     # LSTM hyperparams
     p.add_argument("--lstm-d-spatial", type=int, default=64)
     p.add_argument("--lstm-hidden", type=int, default=128)
     p.add_argument("--lstm-layers", type=int, default=2)
-    # Transformer hyperparams
-    p.add_argument("--tf-d-model", type=int, default=128)
-    p.add_argument("--tf-nhead", type=int, default=8)
-    p.add_argument("--tf-layers", type=int, default=4)
-    p.add_argument("--tf-ffn-dim", type=int, default=256)
     # ConvLSTM hyperparams
     p.add_argument("--convlstm-hidden", type=int, nargs="+", default=[32, 64],
                    metavar="CH",
@@ -104,14 +99,21 @@ def _parse_args() -> argparse.Namespace:
                         "Default: 32 64  (~260 k params).")
     p.add_argument("--convlstm-kernel", type=int, default=3,
                    help="Spatial kernel size for ConvLSTM gates.")
+    p.add_argument("--convlstm-ckpt-segments", type=int, default=0,
+                   help="Gradient checkpointing: split L-step BPTT into N segments. "
+                        "0=disabled. Use 9 for L=90 hidden=[64,128,256] on 80 GB GPU.")
     # Shared
     p.add_argument("--dropout", type=float, default=0.1)
 
     # Training
     p.add_argument("--max-epochs", type=int, default=50)
     p.add_argument("--batch-size", type=int, default=16)
-    p.add_argument("--num-workers", type=int, default=0,
+    p.add_argument("--num-workers", type=int, default=4,
                    help="DataLoader workers. 0 = main process (safest on NFS).")
+    p.add_argument("--amp", action="store_true", default=False,
+                   help="Enable BF16 AMP (A100/H100 only — ignored on CPU/older GPUs).")
+    p.add_argument("--compile", action="store_true", default=False,
+                   help="Enable torch.compile (requires PyTorch 2+ and CUDA).")
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--weight-decay", type=float, default=1e-4)
     p.add_argument("--grad-clip", type=float, default=1.0)
@@ -165,17 +167,6 @@ def _build_model(args: argparse.Namespace, H: int, W: int) -> nn.Module:
             num_layers=args.lstm_layers,
             dropout=args.dropout,
         )
-    elif args.model == "transformer":
-        return SpatialFlatTransformer(
-            H=H, W=W,
-            context_len=args.context_len,
-            horizon=args.horizon,
-            d_model=args.tf_d_model,
-            nhead=args.tf_nhead,
-            num_encoder_layers=args.tf_layers,
-            dim_feedforward=args.tf_ffn_dim,
-            dropout=args.dropout,
-        )
     else:  # convlstm
         return SpatialConvLSTM(
             H=H, W=W,
@@ -184,6 +175,7 @@ def _build_model(args: argparse.Namespace, H: int, W: int) -> nn.Module:
             hidden_channels=args.convlstm_hidden,
             kernel_size=args.convlstm_kernel,
             dropout=args.dropout,
+            checkpoint_segments=args.convlstm_ckpt_segments,
         )
 
 
@@ -198,12 +190,21 @@ def _make_loader(
     )
     if max_windows > 0 and len(ds) > max_windows:
         ds = Subset(ds, list(range(max_windows)))
+    use_gpu = torch.cuda.is_available()
+    # IMPORTANT: Linux default multiprocessing start method is 'fork'.
+    # 'fork' + CUDA = undefined behaviour (workers inherit parent CUDA context
+    # which is not fork-safe). Use 'spawn' so each worker starts with a clean
+    # Python interpreter and no inherited CUDA state.
+    # With num_workers=0 this argument is ignored.
+    mp_ctx = "spawn" if (args.num_workers > 0 and use_gpu) else None
     return DataLoader(
         ds,
         batch_size=args.batch_size,
         shuffle=(split == "train"),
         num_workers=args.num_workers,
-        pin_memory=False,
+        pin_memory=use_gpu,
+        persistent_workers=(args.num_workers > 0),
+        multiprocessing_context=mp_ctx,
         drop_last=False,
     )
 
@@ -221,32 +222,43 @@ def _epoch(
     optimizer: torch.optim.Optimizer | None,
     grad_clip: float,
     device: torch.device,
+    scaler: GradScaler | None = None,
+    use_amp: bool = False,
 ) -> float:
     """Run one train or val epoch; return mean MSE over ocean cells."""
     is_train = optimizer is not None
     model.train(is_train)
     total_loss = 0.0
     n_batches = 0
+    amp_dtype = torch.bfloat16 if use_amp else None
 
     with torch.set_grad_enabled(is_train):
         for x, y in loader:
             x = x.to(device, non_blocking=True)    # (B, L, 1, H, W)
             y = y.to(device, non_blocking=True)    # (B, h, H, W)
 
-            pred = model(x)                        # (B, h, H, W)
+            with torch.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
+                pred = model(x)                    # (B, h, H, W)
 
-            # MSE over ocean cells only
-            # ocean_mask: (H, W) → broadcast over (B, h, H, W)
-            mask = ocean_mask.unsqueeze(0).unsqueeze(0)        # (1, 1, H, W)
-            loss = criterion(pred[mask.expand_as(pred)],
-                             y[mask.expand_as(y)])
+                # MSE over ocean cells only
+                mask = ocean_mask.unsqueeze(0).unsqueeze(0)    # (1, 1, H, W)
+                loss = criterion(pred[mask.expand_as(pred)],
+                                 y[mask.expand_as(y)])
 
             if is_train:
                 optimizer.zero_grad()
-                loss.backward()
-                if grad_clip > 0:
-                    nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-                optimizer.step()
+                if scaler is not None:
+                    scaler.scale(loss).backward()
+                    if grad_clip > 0:
+                        scaler.unscale_(optimizer)
+                        nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    loss.backward()
+                    if grad_clip > 0:
+                        nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+                    optimizer.step()
 
             total_loss += loss.item()
             n_batches += 1
@@ -273,10 +285,29 @@ def main() -> None:
     # ── Device (CUDA if available, else CPU) ─────────────────────────────────
     if torch.cuda.is_available():
         device = torch.device("cuda")
-        print(f"[train_e1] Using GPU: {torch.cuda.get_device_name(0)} "
-              f"({torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB VRAM)")
+        gpu_name = torch.cuda.get_device_name(0)
+        vram_gb  = torch.cuda.get_device_properties(0).total_memory / 1e9
+        print(f"[train_e1] Using GPU: {gpu_name} ({vram_gb:.1f} GB VRAM)")
+
+        # A100/H100: enable TF32 for matmuls (free ~3× speedup on these GPUs).
+        # allow_tf32 flags are the PyTorch <2.0 API; set_float32_matmul_precision
+        # is the 2.0+ API that also covers torch.linalg and other backends.
+        # Setting both is belt-and-suspenders — no conflict.
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.set_float32_matmul_precision("high")   # "high" = TF32 (10-bit mantissa)
+        torch.backends.cudnn.benchmark = True
+        print("[train_e1] TF32 + matmul precision=high, cuDNN benchmark ON")
+
+        # BF16 AMP — A100 has native BF16 tensor cores
+        use_amp = args.amp
+        scaler  = GradScaler(enabled=False)   # BF16 doesn't need dynamic scaling
+        if use_amp:
+            print("[train_e1] BF16 AMP enabled")
     else:
-        device = torch.device("cpu")
+        device  = torch.device("cpu")
+        use_amp = False
+        scaler  = None
         torch.set_num_threads(int(os.environ.get("OMP_NUM_THREADS", "1")))
 
     # ── Load metadata from Zarr ───────────────────────────────────────────────
@@ -313,8 +344,44 @@ def main() -> None:
     n_params = model.count_parameters()
     print(f"[train_e1] model={args.model}, params={n_params:,}")
 
+    # torch.compile: major speedup on A100 by fusing ops into custom kernels
+    # mode="default": operator fusion without CUDA graphs — required for
+    # gradient checkpointing (use_reentrant=False is incompatible with CUDA graphs)
+    if args.compile and device.type == "cuda":
+        print("[train_e1] torch.compile enabled (mode=default) ...")
+        model = torch.compile(model, mode="default")
+
+    # ── GPU warmup: trigger cuDNN benchmark + verify GPU is computing ─────────
+    # cuDNN benchmark (enabled above) runs a one-time algorithm search on the
+    # first Conv2d call for each unique (in, out, kernel, H, W) configuration.
+    # With 3 layers × 2 conv ops = 6 unique kernels, this takes ~5–30 s total.
+    # Doing it NOW (before the epoch timer) keeps epoch-1 timing clean and, more
+    # importantly, confirms the GPU is actually being used before we commit to a
+    # full 8-hour walltime run.
+    if device.type == "cuda":
+        print("[train_e1] GPU warmup: running dummy forward to prime cuDNN ...",
+              flush=True)
+        _t_warm = time.monotonic()
+        with torch.no_grad():
+            # Use float32 dummy (model weights are float32); autocast handles
+            # BF16 conversion during real training via torch.autocast.
+            _dummy_x = torch.zeros(1, args.context_len, 1, H, W, device=device)
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16,
+                                enabled=args.amp):
+                _dummy_out = model(_dummy_x)
+            del _dummy_x, _dummy_out
+        torch.cuda.synchronize()
+        _free, _total = torch.cuda.mem_get_info(0)
+        print(f"[train_e1] GPU warmup done in {time.monotonic()-_t_warm:.1f}s  "
+              f"VRAM used: {(_total-_free)/1e9:.1f} GB / {_total/1e9:.1f} GB",
+              flush=True)
+
     # ── Optimiser + scheduler ─────────────────────────────────────────────────
-    optimizer = Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    # fused=True: single CUDA kernel for all parameter updates (~1-2% faster).
+    # Mathematically identical to standard Adam. Only available on CUDA.
+    _use_fused = (device.type == "cuda")
+    optimizer = Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay,
+                     fused=_use_fused)
     scheduler = ReduceLROnPlateau(
         optimizer, mode="min", factor=args.lr_factor,
         patience=args.lr_patience, min_lr=1e-6,
@@ -335,8 +402,8 @@ def main() -> None:
 
     for epoch in range(1, args.max_epochs + 1):
         t_ep = time.monotonic()
-        train_mse = _epoch(model, train_loader, criterion, ocean_mask, optimizer, args.grad_clip, device)
-        val_mse   = _epoch(model, val_loader,   criterion, ocean_mask, None,      0.0,            device)
+        train_mse = _epoch(model, train_loader, criterion, ocean_mask, optimizer, args.grad_clip, device, scaler, use_amp)
+        val_mse   = _epoch(model, val_loader,   criterion, ocean_mask, None,      0.0,            device, None,   use_amp)
 
         scheduler.step(val_mse)
         current_lr = optimizer.param_groups[0]["lr"]

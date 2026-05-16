@@ -1,60 +1,15 @@
-"""Convolutional LSTM for direct multi-step SST forecasting (E2).
-
-Architecture
-------------
-Input:  ``(B, L, 1, H, W)``  — normalised SST anomaly, L=context, H×W=grid
-Output: ``(B, h, H, W)``     — h-step-ahead normalised SST anomaly
-
-Pipeline::
-
-    ConvLSTMCell × n_layers  (unrolled over L timesteps, full H×W grid)
-    Last hidden state  →  (B, hidden_channels[-1], H, W)
-    1×1 Conv decoder   →  (B, h, H, W)
-
-Unlike ``SpatialFlatLSTM``, the hidden state is never flattened — spatial
-structure is preserved throughout the recurrence.  With ``hidden_channels=[32, 64]``
-this is ~260 k parameters vs ~9.7 M for the flat LSTM.
-
-The model is trained in *normalised* space; caller multiplies by ``norm_std``
-to recover °C RMSE for reporting.
-
-Usage
------
->>> model = SpatialConvLSTM(H=81, W=121, context_len=90, horizon=7)
->>> x = torch.randn(2, 90, 1, 81, 121)
->>> y = model(x)
->>> y.shape
-torch.Size([2, 7, 81, 121])
-"""
-
 from __future__ import annotations
 
 import torch
 import torch.nn as nn
 from torch import Tensor
+from torch.utils.checkpoint import checkpoint as grad_checkpoint
 
 __all__ = ["ConvLSTMCell", "SpatialConvLSTM"]
 
 
 class ConvLSTMCell(nn.Module):
-    """Single ConvLSTM cell (Shi et al. 2015).
-
-    All four gates are computed with 2-D convolutions so the hidden state
-    keeps its (H, W) spatial dimensions.  Both input and hidden projections
-    are fused into one ``Conv2d`` call each for efficiency.
-
-    Parameters
-    ----------
-    in_channels :
-        Channels in the input tensor (1 for raw SST, or hidden size of the
-        previous layer).
-    hidden_channels :
-        Channels in the hidden and cell states.
-    kernel_size :
-        Spatial kernel size; same-padding is applied automatically.
-    bias :
-        Whether to add bias to the input projection.
-    """
+    """Single ConvLSTM cell (Shi et al. 2015)."""
 
     def __init__(
         self,
@@ -65,64 +20,29 @@ class ConvLSTMCell(nn.Module):
     ) -> None:
         super().__init__()
         self.hidden_channels = hidden_channels
-        pad = kernel_size // 2  # same-padding keeps H, W unchanged
-
-        # input → all 4 gates in one conv
+        pad = kernel_size // 2
         self.conv_input = nn.Conv2d(
             in_channels, 4 * hidden_channels,
             kernel_size=kernel_size, padding=pad, bias=bias,
         )
-        # hidden → all 4 gates; no bias to avoid double-counting
         self.conv_hidden = nn.Conv2d(
             hidden_channels, 4 * hidden_channels,
             kernel_size=kernel_size, padding=pad, bias=False,
         )
 
-    # ------------------------------------------------------------------
-
     def init_hidden(self, batch_size: int, H: int, W: int) -> tuple[Tensor, Tensor]:
-        """Return zero (h_0, c_0) on the same device as the cell weights."""
         device = next(self.parameters()).device
         h = torch.zeros(batch_size, self.hidden_channels, H, W, device=device)
         c = torch.zeros(batch_size, self.hidden_channels, H, W, device=device)
         return h, c
 
-    # ------------------------------------------------------------------
-
     def forward(
         self,
-        x: Tensor,                  # (B, in_channels, H, W)
-        hc: tuple[Tensor, Tensor],  # (h_{t-1}, c_{t-1})
-    ) -> tuple[Tensor, Tensor]:
-        """One timestep update. Returns (h_t, c_t), each ``(B, hidden, H, W)``."""
-        h_prev, c_prev = hc
-        gates = self.conv_input(x) + self.conv_hidden(h_prev)  # (B, 4*hidden, H, W)
-
-        i, f, g, o = gates.chunk(4, dim=1)
-        i = torch.sigmoid(i)
-        f = torch.sigmoid(f)
-        g = torch.tanh(g)
-        o = torch.sigmoid(o)
-
-        c_t = f * c_prev + i * g
-        h_t = o * torch.tanh(c_t)
-        return h_t, c_t
-
-    # ------------------------------------------------------------------
-
-    def forward_with_proj(
-        self,
-        inp_proj: Tensor,           # (B, 4*hidden, H, W) — pre-computed conv_input output
+        x: Tensor,
         hc: tuple[Tensor, Tensor],
     ) -> tuple[Tensor, Tensor]:
-        """Like ``forward()`` but accepts a pre-computed ``conv_input`` result.
-
-        Use this when the input tensor is the same across many timesteps so
-        ``conv_input`` can be called once upfront in a batched fashion, reducing
-        kernel-launch overhead by ~L-fold for that layer.
-        """
         h_prev, c_prev = hc
-        gates = inp_proj + self.conv_hidden(h_prev)
+        gates = self.conv_input(x) + self.conv_hidden(h_prev)
 
         i, f, g, o = gates.chunk(4, dim=1)
         i = torch.sigmoid(i)
@@ -133,28 +53,13 @@ class ConvLSTMCell(nn.Module):
         c_t = f * c_prev + i * g
         h_t = o * torch.tanh(c_t)
         return h_t, c_t
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 
 
 class SpatialConvLSTM(nn.Module):
-    """Stacked ConvLSTM encoder + 1×1-Conv decoder for SST forecasting.
+    """Stacked ConvLSTM encoder with 1x1 conv decoder for multi-step SST forecasting.
 
-    Parameters
-    ----------
-    H, W :
-        Spatial grid dimensions.
-    context_len :
-        Number of input timesteps *L*.
-    horizon :
-        Number of output timesteps *h*.
-    hidden_channels :
-        Hidden channel count per layer.  ``[32, 64]`` gives ~260 k params.
-    kernel_size :
-        Spatial kernel size for all gate convolutions (same-padding applied).
-    dropout :
-        Feature-map dropout (``nn.Dropout2d``) on the final hidden state.
+    Input:  (B, L, 1, H, W)
+    Output: (B, h, H, W)
     """
 
     def __init__(
@@ -166,77 +71,82 @@ class SpatialConvLSTM(nn.Module):
         hidden_channels: list[int] | None = None,
         kernel_size: int = 3,
         dropout: float = 0.1,
+        checkpoint_segments: int = 0,
     ) -> None:
         super().__init__()
         self.H = H
         self.W = W
         self.L = context_len
         self.h = horizon
+        self.checkpoint_segments = checkpoint_segments
 
         if hidden_channels is None:
             hidden_channels = [32, 64]
         self.hidden_channels = hidden_channels
 
-        # build ConvLSTM stack
         cells: list[nn.Module] = []
-        in_ch = 1  # input has 1 channel (normalised SST)
+        in_ch = 1
         for hc in hidden_channels:
             cells.append(ConvLSTMCell(in_ch, hc, kernel_size=kernel_size))
             in_ch = hc
         self.cells = nn.ModuleList(cells)
 
+        for cell in self.cells:
+            cell.conv_input  = cell.conv_input.to(memory_format=torch.channels_last)
+            cell.conv_hidden = cell.conv_hidden.to(memory_format=torch.channels_last)
+
         self.drop = nn.Dropout2d(p=dropout)
-
-        # one output channel per forecast lead time
-        self.decoder = nn.Conv2d(
-            hidden_channels[-1], horizon, kernel_size=1, bias=True
-        )
-
-    # -------------------------------------------------------------------------
+        self.decoder = nn.Conv2d(hidden_channels[-1], horizon, kernel_size=1, bias=True)
 
     def forward(self, x: Tensor) -> Tensor:
-        """
-        Parameters
-        ----------
-        x : ``(B, L, 1, H, W)``  normalised SST anomaly context.
-
-        Returns
-        -------
-        ``(B, h, H, W)``  h-step ahead normalised SST anomaly forecast.
-        """
-        B, L, C, H, W = x.shape  # noqa: N806
+        B, L, C, H, W = x.shape
         assert C == 1 and H == self.H and W == self.W
 
+        x = x.contiguous()
         states: list[tuple[Tensor, Tensor]] = [
             cell.init_hidden(B, H, W) for cell in self.cells
         ]
 
-        # Pre-compute layer-0 input projections in a single batched Conv2d call.
-        # conv_input(x_t) is independent across all L timesteps since x is fixed;
-        # fusing into one (B*L, ...) call reduces kernel-launch overhead ~L-fold
-        # for that layer (~90× on L=90, giving 2–3× overall speedup on small grids).
-        x_flat = x.reshape(B * L, C, H, W)              # (B*L, 1, H, W)
-        l0_proj = self.cells[0].conv_input(x_flat)      # (B*L, 4*h0, H, W)
-        l0_proj = l0_proj.reshape(B, L, -1, H, W)       # (B, L, 4*h0, H, W)
+        if self.checkpoint_segments > 0 and torch.is_grad_enabled():
+            seg_len = (L + self.checkpoint_segments - 1) // self.checkpoint_segments
 
-        for t in range(L):
-            # Layer 0: use the pre-computed slice — no conv_input call here.
-            h_t, c_t = self.cells[0].forward_with_proj(l0_proj[:, t], states[0])
-            states[0] = (h_t, c_t)
-            x_t = h_t  # (B, h0, H, W) — becomes input to the next layer
+            def run_segment(x_seg: Tensor, *states_flat: Tensor) -> tuple[Tensor, ...]:
+                n = len(self.cells)
+                seg_states: list[tuple[Tensor, Tensor]] = [
+                    (states_flat[2 * i], states_flat[2 * i + 1]) for i in range(n)
+                ]
+                for t in range(x_seg.size(1)):
+                    x_t = x_seg[:, t].to(memory_format=torch.channels_last)
+                    for layer_idx in range(n):
+                        x_t, c_t = self.cells[layer_idx](x_t, seg_states[layer_idx])
+                        seg_states[layer_idx] = (x_t, c_t)
+                return tuple(s for pair in seg_states for s in pair)
 
-            # Layers 1+: input is h_t from the previous layer, which is computed
-            # sequentially, so these conv_input calls cannot be pre-computed.
-            for layer_idx in range(1, len(self.cells)):
-                x_t, c_t = self.cells[layer_idx](x_t, states[layer_idx])
-                states[layer_idx] = (x_t, c_t)
+            for seg_start in range(0, L, seg_len):
+                seg_end = min(seg_start + seg_len, L)
+                states_flat_in = tuple(s for pair in states for s in pair)
+                states_flat_out = grad_checkpoint(
+                    run_segment,
+                    x[:, seg_start:seg_end],
+                    *states_flat_in,
+                    use_reentrant=False,
+                )
+                states = [
+                    (states_flat_out[2 * i], states_flat_out[2 * i + 1])
+                    for i in range(len(self.cells))
+                ]
+            x_t = states[-1][0]
 
-        # x_t is h_L of the final layer
-        out = self.decoder(self.drop(x_t))  # (B, horizon, H, W)
+        else:
+            for t in range(L):
+                x_t = x[:, t].to(memory_format=torch.channels_last)
+                for layer_idx in range(len(self.cells)):
+                    x_t, c_t = self.cells[layer_idx](x_t, states[layer_idx])
+                    states[layer_idx] = (x_t, c_t)
+
+        out = self.decoder(self.drop(x_t))
         return out
 
-    # -------------------------------------------------------------------------
-
     def count_parameters(self) -> int:
-        """Return the total number of trainable parameters."""
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
