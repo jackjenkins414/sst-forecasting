@@ -1,0 +1,83 @@
+Transformer Experiment Summary
+==============================
+Dataset:
+- NOAA OISST v2.1 daily SST
+- Region: Coral Sea (140 E to 170 E, 25 S to 5 S)
+- Date range: 1981-09-01 to 2000-12-31
+- Grid: 81 lat x 121 lon (0.25 deg resolution)
+- Ocean points after land mask: 7890
+
+Preprocessing:
+- Z-scored SST anomalies (climatology subtracted, divided by training std)
+- Climatology and norm stats computed from training years only (no leakage)
+- norm_mean = 0.00000, norm_std = 0.70023
+
+Sliding windows:
+- Input length: 90 days
+- Forecast horizon: 7 days
+- Input shape per sample: (90, 1, 81, 121)
+- Target shape per sample: (7, 81, 121)
+
+Split:
+- Train: 1981-09-01 to 1995-12-31  (322 batches)
+- Val:   1996-01-01 to 1998-12-31  (63 batches)
+- Test:  1999-01-01 to 2000-12-31  (40 batches)
+- Batch size: 16
+
+Model:
+- Encoder-only spatial flat Transformer (built from scratch)
+- Components: SpatialProjection -> PositionalEncoding -> Encoder -> OutputHead
+- d_model: 128
+- Encoder blocks: 2
+- Attention heads: 4
+- FFN hidden dim (d_ff): 512
+- Dropout: 0.1
+- Total parameters: 10,500,735
+
+Training:
+- Optimiser: Adam, lr=1e-3, weight_decay=1e-4
+- Gradient clipping: 1.0
+- Loss: masked MSE over ocean cells, computed in normalised space
+- Epochs: 8
+- Device: CPU (M3 Pro MacBook)
+- Final train loss: 0.5250 | Final val loss: 0.7175
+
+Transformer test performance (denormalised, deg C):
+- RMSE day 1: 0.4905
+- RMSE day 2: 0.5297
+- RMSE day 3: 0.5566
+- RMSE day 4: 0.5746
+- RMSE day 5: 0.5883
+- RMSE day 6: 0.5990
+- RMSE day 7: 0.6065
+- RMSE mean:  0.5636
+- MAE  mean:  0.4439
+
+Persistence baseline (deg C):
+- RMSE day 1: 0.3253
+- RMSE day 2: 0.4916
+- RMSE day 3: 0.5803
+- RMSE day 4: 0.6293
+- RMSE day 5: 0.6602
+- RMSE day 6: 0.6813
+- RMSE day 7: 0.6967
+- RMSE mean:  0.5807
+- MAE  mean:  0.4448
+
+Skill score vs persistence:
+- RMSE skill: 0.0294
+- MAE  skill: 0.0019
+
+Comparison to LSTM (StackedSpatialLSTM, 8 epochs):
+                   Day 1   Day 7   Mean
+- Persistence       0.33    0.70   0.58
+- LSTM              0.60    0.63   0.62
+- Transformer       0.49    0.61   0.56
+
+Conclusion:
+- The Transformer beats both the LSTM and persistence on mean RMSE.
+- Per-horizon curve degrades naturally (0.49 -> 0.61), unlike the LSTMwhich was flat (0.60 -> 0.63)
+- Beats persistence at every horizon from day 3 onwards. 
+- Validation loss had not plateaued at 8 epochs (still trending down)
+- Next stage: build a Temporal Fusion Transformer fork with per-horizon learned queries
+ and cross-attention decoding, replacing the last-token decoding strategy that limits longer-horizon accuracy.
