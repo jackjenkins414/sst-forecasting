@@ -1,12 +1,11 @@
 # Based on: https://arxiv.org/pdf/2012.07436
-# TODO: Update to ensure it matches the paper strictly. 
-# TODO: Get review regarding correctness. 
+# TODO: Add file head comment. 
 
 import torch
 import torch.nn as nn
 import math
 
-#TODO: Add head comment.
+#TODO: RE-EVALUATE AND REPLACE
 class CNNSpatialEncoding(nn.Module):
     """
     CNN-based spatial feature extractor for SST grids.
@@ -190,7 +189,7 @@ class LayerNormalisation(nn.Module):
         # standard layernorm formula
         return self.alpha * (x - mean) / (std + self.eps) + self.bias
     
-#TODO: Add head comment. 
+#TODO: RE-EVALUATE AND REPLACE 
 class ProbSparseAttention(nn.Module):
     """ProbSparse Informer attention.
 
@@ -269,7 +268,7 @@ class ProbSparseAttention(nn.Module):
 
         return context
     
-#TODO: Comments
+#TODO: RE-EVALUATE AND REPLACE
 class SelfAttentionLayer(nn.Module):
     """Multi-head ProbSparse self-attention layer.
 
@@ -325,7 +324,7 @@ class SelfAttentionLayer(nn.Module):
 
         return self.proj(out)
 
-#TODO: Comments
+#TODO: RE-EVALUATE AND REPLACE
 class CrossAttentionLayer(nn.Module):
     """Multihead cross-attention layer.
 
@@ -478,7 +477,7 @@ class ResidualConnection(nn.Module):
         # stable deep stack training.
         return x + self.dropout(sublayer(self.norm(x)))
     
-#TODO: Comments
+#TODO: RE-EVALUATE AND REPLACE
 class EncoderLayer(nn.Module):
     """A single encoder layer for the Informer.
 
@@ -526,7 +525,7 @@ class EncoderLayer(nn.Module):
         x = self.res2(x, self.ff)
         return x
     
-#TODO
+#TODO: RE-EVALUATE AND REPLACE
 class EncoderDistillation(nn.Module):
     """Self attention distillation in line with the Informer paper. 
     Reduces sequence length by factor of 2.
@@ -563,7 +562,7 @@ class EncoderDistillation(nn.Module):
         # Restore transposition. 
         return x.transpose(1, 2)
     
-#TODO
+#TODO: RE-EVALUATE AND REPLACE
 class InformerEncoder(nn.Module):
     """Informer encoder stack with ProbSparse self-attention and distillation.
 
@@ -612,7 +611,7 @@ class InformerEncoder(nn.Module):
                 x = self.distill(x)
         return self.norm(x)
     
-#TODO: Head """ Comments
+#TODO: RE-EVALUATE AND REPLACE
 class DecoderLayer(nn.Module):
     def __init__(self, self_attn, cross_attn, ff, d_model, dropout):
         super().__init__()
@@ -635,7 +634,7 @@ class DecoderLayer(nn.Module):
         x = self.res3(x, self.ff)
         return x
     
-#TODO
+#TODO: RE-EVALUATE AND REPLACE
 class InformerDecoder(nn.Module):
     # TODO: See whether to use ModuleList or just an int for no of layers.
     def __init__(self, layers: list[nn.Module], d_model: int):
@@ -677,6 +676,7 @@ class InformerDecoder(nn.Module):
             x = layer(x, memory)
         return self.norm(x)
 
+#TODO: RE-EVALUATE AND REPLACE
 class OutputProjectionHead(nn.Module):
     """Linearly project d_model to reshape to H*W SST grid. 
 
@@ -692,7 +692,7 @@ class OutputProjectionHead(nn.Module):
         x = self.proj(x)
         return x.view(x.size(0), x.size(1), self.H, self.W)
   
-#TODO: Verify, and update comments to explicitly state structuring. 
+#TODO: RE-EVALUATE, UPDATE, AND VERIFY
 class ProbSparseInformer(nn.Module):
     """ProbSparse Attention Informer for SST forecasting. 
 
