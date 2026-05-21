@@ -5,62 +5,63 @@ import torch
 import torch.nn as nn
 import math
 
-#TODO: RE-EVALUATE AND REPLACE
-class CNNSpatialEncoding(nn.Module):
-    """
-    CNN-based spatial feature extractor for SST grids.
+# Input embedding, imported from Jack's spatial-flat transformer model.  
+class SpatialProjection(nn.Module):
+    """Project flattened SST grid to d_model.
 
     (B, L, 1, H, W) -> (B, L, d_model)
     """
-    def __init__(self, d_model: int):
-        """Build the CNN-based spatial encoder.
+    def __init__(self, d_model: int, height: int, width: int):
+        """Build the spatial projection layer.
 
         Parameters
         ----------
         d_model : int
-            Working dimension of the Informer. The CNN compresses
-            each spatial grid into a d_model-dimensional vector. 
+            Working dimension of the Transformer. Every internal layer operates 
+            on vectors of this size.
+        height : int
+            Spatial height of the SST grid (81 for Coral Sea).
+        width : int
+            Spatial width of the SST grid (121 for Coral Sea).
         """
         super().__init__()
-        self.cnn = nn.Sequential(
-            # NOTE: Choice of 32 output channels is arbitrary, find optimal value. 
-            # TODO: Figure out whether or not to pad. 
-            # Extract low-level spatial patterns. 
-            nn.Conv2d(1, 32, kernel_size=3, padding=1), 
-            nn.ReLU(), 
-            # Extract higher-level curvatures and pooling patterns. 
-            nn.Conv2d(32, 64, kernel_size=3, padding=1), 
-            nn.ReLU(),
-            # Collapse H*W to a global 1*1 aggregate. 
-            nn.AdaptiveAvgPool2d(1), 
-            # Flatten [64, 1, 1] to [64] (vector per timestep). 
-            nn.Flatten(),
-            # Map a projection to d_model. 
-            nn.Linear(64, d_model)
-        )
-    
+        self.d_model = d_model
+
+        # Spatial dims of the SST grid 
+        self.height = height
+        self.width = width
+
+        # Learnable linear layer; model learns which spatail parms matter
+        # and compresses them into d_model dims
+        self.projection = nn.Linear(height * width, d_model)
+
     def forward(self, x):
-        """Encode each timestep's SST grid into a d_model vector.
+        """Project a batch of SST sequences into d_model space.
 
         Parameters
         ----------
         x : torch.Tensor
             Input SST sequences, shape (B, L, 1, H, W).
             B = batch size, L = sequence length (90 days),
-            1 = C = channel dim, H, W = spatial grid.
+            1 = channel dim, H, W = spatial grid.
 
         Returns
         -------
         torch.Tensor
-            CNN-encoded tensor of shape (B, L, d_model).
+            Projected sequences, shape (B, L, d_model), scaled by
+            sqrt(d_model) per Vaswani et al. Section 3.4.
         """
-        B, L, C, H, W = x.shape
-        # Merge batch and time for independent timestep processing. 
-        x = x.view(B * L, C, H, W)
-        # Apply CNN encoder to each timestep. 
-        x = self.cnn(x)
-        # Restore structure: (B*L, d_model) -> (B, L, d_model)
-        return x.view(B, L, -1)
+        B, L, _, H, W = x.shape
+
+        # Flatten the (1, H, W) per timestep into single H*W vector
+        x = x.view(B, L, H * W)
+
+        # Map each H*W vector to a d_model vector by applying learned 
+        # projection to every timestep independently
+        x = self.projection(x)
+
+        # Scale as per paper implementation 
+        return x * math.sqrt(self.d_model)
     
 # Imported from Jack's Transformer model. 
 class PositionalEncoding(nn.Module):
