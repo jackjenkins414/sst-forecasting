@@ -64,15 +64,43 @@ class SpatialProjection(nn.Module):
         # Scale as per paper implementation 
         return x * math.sqrt(self.d_model)
 
-# TODO: Finish class framework. 
+# Handles calendar time to allow the model to learn seasonal dynamics. 
 class TemporalEmbedding(nn.Module):
-    """TODO
+    """Maps day-of-year indices to d_model vectors, allowing the model to learn 
+    annual sea surface temperature periodicity and seasonal structuring.
+    (B, L) -> (B, L, d_model)
     """
-    def __init__(self):
-        return
+    def __init__(self, d_model: int):
+        """Build the temporal embedding lookup.
 
-    def forward(self, x):
-        return
+        Parameter
+        ----------
+        d_model : int
+            Working dimension of the Informer.
+        """ 
+        super().__init__()
+        # Creates a learnable look up table with a vector corresponding to each 
+        # day. Each day has its own trainable vector. 
+        self.day = nn.Embedding(366, d_model)
+
+    def forward(self, date):
+        """Convert day-of-year indices into learnable embeddings.
+
+        Parameter
+        ----------
+        date : torch.Tensor
+            Day-of-year indices of shape (B, L). Each entry should be an 
+            integer in the range [0, 365].
+
+        Returns
+        -------
+        torch.Tensor
+            Learnable temporal embeddings of shape (B, L, d_model). 
+            Each timestep carries explicit seasonal information for the Informer.
+        """
+        # Note: date expressed as the day of the year between 0 and 365.
+        # Returns a learnable seasonal representation.  
+        return self.day(date)
     
 # TODO: Finish class framework. 
 class DataEmbedding(nn.Module):
