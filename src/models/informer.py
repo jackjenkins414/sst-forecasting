@@ -64,6 +64,7 @@ class SpatialProjection(nn.Module):
         # Scale as per paper implementation 
         return x * math.sqrt(self.d_model)
 
+
 # Handles calendar time to allow the model to learn seasonal dynamics. 
 class TemporalEmbedding(nn.Module):
     """Maps day-of-year indices to d_model vectors, allowing the model to learn 
@@ -101,17 +102,8 @@ class TemporalEmbedding(nn.Module):
         # Note: date expressed as the day of the year between 0 and 365.
         # Returns a learnable seasonal representation.  
         return self.day(date)
-    
-# TODO: Finish class framework. 
-class DataEmbedding(nn.Module):
-    """TODO
-    """
-    def __init__(self):
-        return
 
-    def forward(self, x):
-        return
-    
+
 # Imported from Jack's Transformer model. 
 class PositionalEncoding(nn.Module):
     """Add sinusoidal positional encodings to an embedded sequence.
@@ -191,7 +183,62 @@ class PositionalEncoding(nn.Module):
         # Dropout on the combined embedding+position signal; regularisation as per paper
         return self.dropout(x)
     
+
+# Implements the paper's unified input representation from appendix item B.  
+class DataEmbedding(nn.Module):
+    """Combines spatial SST embeddings, positional encodings, and
+    learnable temporal embeddings into the final input representation.
+
+    Implements Xt_feed = alpha u + PE + SE
+
+    (B, L, 1, H, W) + (B, L) -> (B, L, d_model)
+    """
+    def __init__(self, d_model: int, height: int, width: int, dropout: float, seq_len: int):
+        """Build the Informer embedding pipeline.
+
+        Parameters
+        ----------
+        d_model : int
+            Working dimension of the Informer.
+        height : int
+            Spatial height of the SST grid.
+        width : int
+            Spatial width of the SST grid.
+        dropout : float
+            Dropout probability applied after combining all embeddings.
+        seq_len : int
+            Maximum sequence length the model will ever see through 
+            positional encoding. 
+        """
+        self.val = SpatialProjection(d_model, height, width)
+        self.pos = PositionalEncoding(d_model, seq_len, dropout)
+        self.temporal = TemporalEmbedding(d_model)
+
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, date):
+        """Implement the full Informer input embedding.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            SST input tensor of shape (B, L, 1, H, W).
+        date : torch.Tensor
+            Day-of-year indices of shape (B, L).
+
+        Returns
+        -------
+        torch.Tensor
+            Combined embeddings of shape (B, L, d_model).
+        """
+        val = self.val(x)
+        pos = self.pos(val)
+        temporal = self.temporal(date)
+
+        x = val + pos + temporal
+        return self.dropout(x)
     
+
 # Imported from Jack's Transformer model.
 class LayerNormalisation(nn.Module):
     def __init__(self, d_model: int, eps: float = 10**-6) -> None:
