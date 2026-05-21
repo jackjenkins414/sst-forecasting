@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import math
 
+
 # Input embedding, imported from Jack's spatial-flat transformer model.  
 class SpatialProjection(nn.Module):
     """Project flattened SST grid to d_model.
@@ -62,6 +63,26 @@ class SpatialProjection(nn.Module):
 
         # Scale as per paper implementation 
         return x * math.sqrt(self.d_model)
+
+# TODO: Finish class framework. 
+class TemporalEmbedding(nn.Module):
+    """TODO
+    """
+    def __init__(self):
+        return
+
+    def forward(self, x):
+        return
+    
+# TODO: Finish class framework. 
+class DataEmbedding(nn.Module):
+    """TODO
+    """
+    def __init__(self):
+        return
+
+    def forward(self, x):
+        return
     
 # Imported from Jack's Transformer model. 
 class PositionalEncoding(nn.Module):
@@ -141,6 +162,7 @@ class PositionalEncoding(nn.Module):
 
         # Dropout on the combined embedding+position signal; regularisation as per paper
         return self.dropout(x)
+    
     
 # Imported from Jack's Transformer model.
 class LayerNormalisation(nn.Module):
@@ -268,6 +290,16 @@ class ProbSparseAttention(nn.Module):
         )
 
         return context
+    
+# TODO: Finish class framework. 
+class FullAttention(nn.Module):
+    """TODO
+    """
+    def __init__(self):
+        return
+
+    def forward(self, x):
+        return
     
 #TODO: RE-EVALUATE AND REPLACE
 class SelfAttentionLayer(nn.Module):
