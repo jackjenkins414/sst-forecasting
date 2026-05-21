@@ -234,3 +234,7 @@ experiments/results/latest_*
 
 # Intermediate ConvLSTM HPC run directories
 experiments/results/sstf_e2_convlstm_*/
+
+# macOS Finder metadata
+.DS_Store
+**/.DS_Store
