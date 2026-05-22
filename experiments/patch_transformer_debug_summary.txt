@@ -1,0 +1,47 @@
+Grid: H=81 W=121 ocean cells=7890
+Patches: 9 x 11 = 99
+norm_mean=0.00000 norm_std=0.70023
+Model parameters: 629,557
+Epoch 01/8 | Train Loss: 0.553921 | Val Loss: 0.577654
+Epoch 02/8 | Train Loss: 0.519041 | Val Loss: 0.566631
+Epoch 03/8 | Train Loss: 0.513995 | Val Loss: 0.586057
+Epoch 04/8 | Train Loss: 0.510643 | Val Loss: 0.568619
+Epoch 05/8 | Train Loss: 0.508863 | Val Loss: 0.568673
+Epoch 06/8 | Train Loss: 0.508367 | Val Loss: 0.558456
+Epoch 07/8 | Train Loss: 0.506637 | Val Loss: 0.558630
+Epoch 08/8 | Train Loss: 0.506510 | Val Loss: 0.594247
+Evaluating persistence baseline...
+
+Patch Transformer Experiment Summary
+------------------------------------
+Context length: 90
+Forecast horizon: 7
+Patch size: 9 x 11
+Train/Val/Test batches: 322 / 63 / 40
+Device: cpu
+
+Patch Transformer (test, °C):
+  RMSE day 1: 0.3370
+  RMSE day 2: 0.4636
+  RMSE day 3: 0.5251
+  RMSE day 4: 0.5578
+  RMSE day 5: 0.5782
+  RMSE day 6: 0.5899
+  RMSE day 7: 0.6002
+  RMSE mean:  0.5217
+  MAE  mean:  0.4065
+
+Persistence (test, °C):
+  RMSE day 1: 0.3253
+  RMSE day 2: 0.4916
+  RMSE day 3: 0.5803
+  RMSE day 4: 0.6293
+  RMSE day 5: 0.6602
+  RMSE day 6: 0.6813
+  RMSE day 7: 0.6967
+  RMSE mean:  0.5807
+  MAE  mean:  0.4448
+
+Skill vs persistence:
+  RMSE skill: 0.1016
+  MAE  skill: 0.0859
