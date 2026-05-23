@@ -287,20 +287,25 @@ class LayerNormalisation(nn.Module):
         # standard layernorm formula
         return self.alpha * (x - mean) / (std + self.eps) + self.bias
     
-#TODO: RE-EVALUATE AND REPLACE 
+
+# Implements the paper's recommended ProbSparse Attention mechanism. 
 class ProbSparseAttention(nn.Module):
-    """ProbSparse Informer attention.
+    """ProbSparse Informer attention, as seen in the paper.
 
     Selects the top-u queries by sparsity measurement to compute attention, 
     reducing complexity from O(L^2) to O(L log L). 
 
-    (B, L, d_model) -> (B, L, d_model)
+    (B, L, d_model) -> (B, L, d_model) using (B, num_heads, L, D) internally,
+    where D = d_model // num_heads
     """
-    def __init__(self, dropout, factor):
+    def __init__(self, masked: bool, dropout: float, factor: int):
         """Build the ProbSparse attention module.
 
         Parameters
         ----------
+        masked : bool
+            Controls whether or not a causal mask is applied. 
+            # NOTE: This is likely true for decoder, false for encoder?
         d_model : int
             Working dimension of the Transformer. Must be divisible by h.
         dropout : float
@@ -309,8 +314,111 @@ class ProbSparseAttention(nn.Module):
             Controls how many queries are selected. 
         """
         super().__init__()
+        self.masked = masked
         self.dropout = nn.Dropout(dropout)
         self.factor = factor
+
+    def prob_QK(self, Q, K, sample_k, top_n):
+        """Samples query-key pairs and computes sparsity metrics for said pairs.
+
+        Parameters
+        ----------
+        Q : torch.Tensor
+            Query tensor of shape (B, H, L_Q, D).
+
+        K : torch.Tensor
+            Key tensor of shape (B, H, L_K, D).
+
+        sample_k : int
+            The number of keys randomly sampled per query. 
+
+        top_n : int
+            The number of dominant queries selected based on the sparsity metrics.
+
+        Returns
+        -------
+        Q_K :
+            Full attention scores for only the selected Top-u queries.
+            (B, H, top_n, L_K)
+
+        M_top :
+            Indices of the selected Top-u queries. 
+            (B, H, top_n)
+        """
+        # Extract dimensions from K and Q.
+        B, H, L_K, D = K.shape
+        _, _, L_Q, _ = Q.shape
+
+        # Randomly sample indices for queries, with each query having sample_k keys. 
+        i_sample = torch.randint(L_K, (L_Q, sample_k), device=Q.device)
+
+        # Expand keys such that every query can access every sampled key. 
+        K_expand = K.unsqueeze(-3).expand(B, H, L_Q, L_K, D)
+
+        # Gather the random key sample. 
+        K_sample = K_expand[
+            :, :, torch.arange(L_Q, device=Q.device).unsqueeze(1), 
+            i_sample, :
+            ]
+        
+        # Compute the sampled query-key dot products for each pair. 
+        Q_K_sample = torch.matmul(Q.unsqueeze(-2), K_sample.transpose(-2, -1)).squeeze(-2)
+
+        # Implements the paper's sparsity measurement. 
+        # It is an empirical max-mean approximation of Kullback-Leibler divergence. 
+        M = Q_K_sample.max(dim=-1).values - Q_K_sample.mean(dim=-1)
+
+        # Based on this, select the top-u queries. 
+        M_top = M.topk(top_n, sorted=False).indices
+
+        # Gather the most dominant queries based on M_top for full
+        # query-key attention score production. 
+        Q_reduced = Q[
+            torch.arange(B)[:, None, None], 
+            torch.arange(H)[None, :, None], M_top, :
+            ]
+        Q_K = torch.matmul(Q_reduced, K.transpose(-2, -1))
+
+        return Q_K, M_top
+    
+    def initialise_non_selected_queries(self, V, L_Q):
+        """Initialise context for the non-selected queries.
+
+        Parameters
+        ----------
+        V : torch.Tensor
+            Value tensor of shape (B, H, L_V, D).
+
+        L_Q : int
+            Query sequence length.
+
+        Returns
+        -------
+        torch.Tensor
+            Initial context tensor of shape (B, H, L_Q, D).
+        """
+        # Extract dimensions from V.
+        B, H, _, D = V.shape
+
+        # Self-attention based on the causal mask. 
+        # NOTE: Confirm that true is for decoder, false is for encoder. 
+        if self.masked:
+            # DECODER
+            # Cumulative representation from timesteps <= t. 
+            context = V.cumsum(dim=-2)
+        else: 
+            # ENCODER
+            # Take the mean of the value vectors across the time dimension. 
+            V_mean = V.mean(dim=-2)
+
+            # Broadcast the mean across all query positions.
+            context = V_mean.unsqueeze(-2).expand(B, H, L_Q, D).clone()
+
+        return context
+    
+    def update_context(self, context, V, scores, index, L_Q):
+        #TODO
+        return
     
     def forward(self, Q, K, V):
         """Compute ProbSparse attention.
@@ -327,44 +435,8 @@ class ProbSparseAttention(nn.Module):
             Shape (B, L, d_model). 
             Attention output after selecting the top-u queries.
         """
-        B, H, L, D = Q.shape
-
-        scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(D)
-
-        # Importance calculation per the paper (#TODO: ADD DIRECT REFERENCE)
-        # TODO: Review MaxMean vs LogSumExp to determine correct implementation. 
-        # Currently using MaxMean based on https://github.com/zhouhaoyi/Informer2020/blob/main/models/attn.py
-        # LogSumExp: importance = torch.logsumexp(scores, dim=-1) - scores.max(dim=-1).values
-        importance = scores.max(dim=-1).values - scores.mean(dim=-1)
-
-        # The number of queries to keep (the core ProbSparse mechanism).
-        # Added safety to ensure that u is never 0. 
-        u = min(max(1, int(self.factor * math.log(L))), L)
-        # Indices of the top-u queries. 
-        top_u_indices = importance.topk(u, dim=-1)[1]
-
-        # The selected top-u queries.
-        Q_top = torch.gather(
-            Q,
-            dim=2,
-            index=top_u_indices.unsqueeze(-1).expand(-1, -1, -1, D)
-        )
-
-        # Full attention computation for the selected queries. 
-        attn_scores = torch.matmul(Q_top, K.transpose(-2, -1)) / math.sqrt(D)
-        attn_weights = torch.softmax(attn_scores, dim=-1)
-        attn_weights = self.dropout(attn_weights)
-        attn_out = torch.matmul(attn_weights, V)
-
-        # Bug fix - create full length context tensor with original query positions. 
-        context = torch.zeros_like(Q)
-        context.scatter_(
-            dim=2,
-            index=top_u_indices.unsqueeze(-1).expand(-1, -1, -1, D),
-            src=attn_out
-        )
-
-        return context
+        # TODO
+        return
     
 # TODO: Finish class framework. 
 class FullAttention(nn.Module):
