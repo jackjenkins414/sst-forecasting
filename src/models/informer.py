@@ -937,9 +937,30 @@ class InformerEncoder(nn.Module):
         # Final normalisation for the encoder. 
         return self.norm(x)
     
-#TODO: RE-EVALUATE AND REPLACE
+# A single decoder block. 
 class DecoderLayer(nn.Module):
+    """A single decoder layer for the Informer.
+
+    Combines ProbSparse self-attention, cross attention, and feed-forward. 
+
+    (B, L, d_model) -> (B, L, d_model)
+    """
     def __init__(self, self_attn, cross_attn, ff, d_model, dropout):
+        """Initialises the decoder layer.
+
+        Parameters
+        ----------
+        self_attn : nn.Module
+            ProbSparse self-attention module.
+        cross_attn: nn.Module
+            Encoder-decoder attention. 
+        ff : nn.Module
+            Feed-Forward block.
+        d_model : int
+            Working dimension of the Informer.
+        dropout : float
+            Dropout probability for residual connections.
+        """
         super().__init__()
         self.self_attn = self_attn
         self.cross_attn = cross_attn
@@ -949,19 +970,37 @@ class DecoderLayer(nn.Module):
         self.res2 = ResidualConnection(d_model, dropout)
         self.res3 = ResidualConnection(d_model, dropout)
 
-    def forward(self, x, memory):
+    def forward(self, x, mem):
+        """Completes a forward pass through the decoder layer. 
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Hidden decoder states. 
+        mem : torch.Tensor
+            Encoder output representations. 
+
+        Returns
+        -------
+        torch.Tensor
+            Shape: (B, L, d_model). 
+        """
         # Self-attention over the decoder input. 
         x = self.res1(x, self.self_attn)
 
         # Cross-attention to the encoder output.
-        x = self.res2(x, lambda x: self.cross_attn(x, memory))
+        x = self.res2(x, lambda x: self.cross_attn(x, mem))
 
         # Feed-Forward block
         x = self.res3(x, self.ff)
         return x
     
-#TODO: RE-EVALUATE AND REPLACE
+# A full decoder stack. 
 class InformerDecoder(nn.Module):
+    """Informer decoder stack. 
+
+    (B, L, d_model) -> (B, L, d_model)
+    """
     # TODO: See whether to use ModuleList or just an int for no of layers.
     def __init__(self, layers: list[nn.Module], d_model: int):
         """Construct the decoder stack.
