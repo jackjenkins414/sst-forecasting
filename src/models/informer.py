@@ -54,7 +54,7 @@ class SpatialProjection(nn.Module):
         B, L, _, H, W = x.shape
 
         # Flatten the (1, H, W) per timestep into single H*W vector
-        x = x.view(B, L, H * W)
+        x = x.reshape(B, L, H * W)
 
         # Map each H*W vector to a d_model vector by applying learned 
         # projection to every timestep independently
@@ -370,7 +370,7 @@ class ProbSparseAttention(nn.Module):
         M = Q_K_sample.max(dim=-1).values - Q_K_sample.mean(dim=-1)
 
         # Based on this, select the top-u queries. 
-        M_top = M.topk(top_n, sorted=False).indices
+        M_top = M.topk(top_n, sorted=True).indices
 
         # Gather the most dominant queries based on M_top for full
         # query-key attention score production. 
@@ -442,18 +442,19 @@ class ProbSparseAttention(nn.Module):
         # Extract dimensions from V.
         B, H, _, D = V.shape
 
-        # Update based on the causal mask. 
-        # NOTE: Confirm that true is for decoder, false is for encoder. 
+        # Update based on the causal mask.  
         if self.masked:
-            # Decoder Mask
-            # An upper triangular mask removes access to all future positions. 
-            mask = torch.triu(torch.ones(scores.shape[-2], 
-                                         scores.shape[-1], 
-                                         device=scores.device), diagonal=1
-                            ).bool()
-            
-            # Replace masked positions with -inf before softmax.
-            scores = scores.masked_fill(mask, float("-inf"))
+            B, H, _, L_K = scores.shape
+
+            # Set key positions: [0, 1, 2, ..., L_K-1]
+            key_positions = torch.arange(L_K, device=scores.device).view(1, 1, 1, L_K)
+
+            # Query positions from  the ProbSparse selection.
+            query_positions = index.unsqueeze(-1)
+
+            # Mask future positions, s.t. true where key position > query position
+            mask = key_positions > query_positions
+            scores = scores.masked_fill(mask, -1e9)
 
         # Scaled dot-product attention scores. 
         attn = torch.softmax((scores / math.sqrt(D)), dim=-1)
@@ -563,7 +564,7 @@ class FullAttention(nn.Module):
             
             # Replace masked positions with -inf before softmax.
             # NOTE: Consider using -1e9 instead of -inf for stability. 
-            scores = scores.masked_fill(mask, float("-inf"))
+            scores = scores.masked_fill(mask, -1e9)
 
         # Scaled dot-product attention scores. 
         attn = torch.softmax(scores, dim=-1)
@@ -1061,7 +1062,7 @@ class OutputProjectionHead(nn.Module):
         x = self.proj(x)
 
         # Reshape to the 2D SST map. 
-        return x.view(B, L, self.H, self.W)
+        return x.contiguous().view(B, L, self.H, self.W)
   
 # The final combined ProbSparse Informer implementation. 
 class ProbSparseInformer(nn.Module):
@@ -1193,7 +1194,7 @@ class ProbSparseInformer(nn.Module):
     
     # HELPER FUNCTION - Simple Sequential Temporal Index Builder
     # NOTE: Assumes 365 day years. 
-    def build_temporal_indices(batch_size, seq_len, device):
+    def build_temporal_indices(self, batch_size, seq_len, device):
         """
         Builds simple sequential temporal indices.
 
@@ -1277,13 +1278,11 @@ class ProbSparseInformer(nn.Module):
         # Construct Informer generative decoder inputs.
         dec_x_raw = self.build_decoder_input(x)
 
+        # Embed the decoder's SST inputs.
         dec_dates = self.build_temporal_indices(
             B, (self.label_len + self.horizon), x.device,
         )
         dec_x = self.dec_embedding(dec_x_raw, dec_dates)
-
-        # Embed the decoder's SST inputs.
-        dec_x = self.dec_embedding(dec_x_raw)
 
         # Generate the decoder's hidden states.
         dec_out = self.decoder(dec_x, mem)
