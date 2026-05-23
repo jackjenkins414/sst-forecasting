@@ -795,7 +795,7 @@ class ResidualConnection(nn.Module):
         # stable deep stack training.
         return x + self.dropout(sublayer(self.norm(x)))
     
-#TODO: RE-EVALUATE AND REPLACE
+# A single encoder block. 
 class EncoderLayer(nn.Module):
     """A single encoder layer for the Informer.
 
@@ -846,7 +846,7 @@ class EncoderLayer(nn.Module):
 #TODO: RE-EVALUATE AND REPLACE
 class EncoderDistillation(nn.Module):
     """Self attention distillation in line with the Informer paper. 
-    Reduces sequence length by factor of 2.
+    Reduces sequence length by factor of 2 according to MaxPool(ELU(Conv1d(x))). 
 
     (B, L, d_model) -> (B, L//2, d_model)
     """
@@ -860,9 +860,9 @@ class EncoderDistillation(nn.Module):
         """
         super().__init__()
         # 1D Convolution with MaxPool Stride Length 2 to halve the sequence length. 
-        self.conv = nn.Conv1d(d_model, d_model, kernel_size=3, stride=1, padding=1)
+        self.conv = nn.Conv1d(d_model, d_model, kernel_size=3, padding=1)
         self.elu = nn.ELU()
-        self.pool = nn.MaxPool1d(kernel_size=2, stride=2, padding=0)
+        self.pool = nn.MaxPool1d(kernel_size=2, stride=2)
 
     def forward(self, x):
         """Complete a distillation.
@@ -871,6 +871,11 @@ class EncoderDistillation(nn.Module):
         ----------
         x : torch.Tensor
             Input from the previous layer of shape (B, L, d_model).
+
+        Returns
+        -------
+        torch.Tensor
+            Distilled encoder sequence of shape (B, L/2, d_model). 
         """
         # Transpose L and d_model for Conv and MaxPool.
         x = x.transpose(1, 2)
