@@ -1235,7 +1235,7 @@ class ProbSparseInformer(nn.Module):
         return dec_x, dec_day
     
 
-    def forward(self, x):
+    def forward(self, x, dates):
         """Run a batch of SST history windows through the Informer.
 
         Parameters
@@ -1243,27 +1243,33 @@ class ProbSparseInformer(nn.Module):
         x : torch.Tensor
             Input SST windows, shape (B, L, 1, H, W). Matches the contract
             used by SstWindowDataset and the rest of the pipeline.
+        dates : torch.Tensor
+            Seasonal indices for each timestep of shape (B, L). 
 
         Returns
         -------
         torch.Tensor
             Forecast grids of shape (B, horizon, H, W).
         """
-        B = x.shape[0]
+        enc_x = self.enc_embedding(x, dates)
 
-        # Run the encoding. 
-        x = self.spatial_enc(x)
-        x = self.pos_enc(x)
-        encoder_out = self.encoder(x)
+        # Generate encoder memory representations. 
+        mem = self.encoder(enc_x)
 
-        # Initialise the decoder input. 
-        decoder_in = self.dec_input_init.expand(B, -1, -1)
+        # Construct Informer generative decoder inputs.
+        dec_x_raw, dec_day = self.build_decoder_input(x, dates)
 
-        # Run the decoding. 
-        decoder_out = self.decoder(decoder_in, encoder_out)
+        # Embed the decoder's SST inputs.
+        dec_x = self.dec_embedding(dec_x_raw, dec_day)
+
+        # Generate the decoder's hidden states.
+        dec_out = self.decoder(dec_x, mem)
+
+        # Keep only the future timesteps (predictions). 
+        dec_out = dec_out[:, -self.horizon:]
 
         # Project to the grid. 
-        pred = self.proj_head(decoder_out)
+        pred = self.proj_head(dec_out)
 
         # Return the predictions. 
         return pred
