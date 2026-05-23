@@ -625,18 +625,19 @@ class SelfAttentionLayer(nn.Module):
         K = self.k(x).view(B, L, self.h, self.d_k).transpose(1, 2)
         V = self.v(x).view(B, L, self.h, self.d_k).transpose(1, 2)
 
-        # Apply ProbSparse attention. 
+        # Apply attention mechanism. 
         out = self.attn(Q, K, V).transpose(1, 2).contiguous().view(B, L, -1)
 
         return self.proj(out)
 
-#TODO: RE-EVALUATE AND REPLACE
-class CrossAttentionLayer(nn.Module):
-    """Multihead cross-attention layer.
 
-    (B, L, d_model) -> (B, L, d_model)
+# Encoder-Decoder Cross Attention
+class CrossAttentionLayer(nn.Module):
+    """Multihead encoder-decoder cross-attention layer.
+
+    (B, L_enc, d_model) x (B, L_dec, d_model) -> (B, L, d_model)
     """
-    def __init__(self, d_model, n_heads):
+    def __init__(self, d_model, n_heads, dropout):
         """Build the multi-head attention block.
 
         Parameters
@@ -645,6 +646,8 @@ class CrossAttentionLayer(nn.Module):
             Working dimension of the Informer. Must be divisible by n_heads.
         n_heads : int
             Number of attention heads. Each head sees d_model // n_heads dims.
+        dropout : float
+            Dropout probability applied to attention weights after softmax.
         """
         super().__init__()
         self.h = n_heads
@@ -654,6 +657,9 @@ class CrossAttentionLayer(nn.Module):
         self.k = nn.Linear(d_model, d_model)
         self.v = nn.Linear(d_model, d_model)
         self.proj = nn.Linear(d_model, d_model)
+
+        # Full attention for cross attention, as per the paper.
+        self.attention = FullAttention(False, dropout)
     
     def forward(self, x, mem):
         """Run multi-head cross-attention.
@@ -661,28 +667,34 @@ class CrossAttentionLayer(nn.Module):
         Parameters
         ----------
         x : torch.Tensor
-            Shape: (B, L, d_model). Query sequence.
+            Shape: (B, L_dec, d_model). Decoder input tensor.
         mem : torch.Tensor
-            Shape: (B, S, d_model). Encoder memory.
+            Shape: (B, L_enc, d_model). Encoder memory tensor.
 
         Returns
         -------
         torch.Tensor
-            Shape: (B, L, d_model).
+            Shape: (B, L_dec, d_model). Cross-attention decoder representation. 
         """
-        B, L, _ = x.shape
+        B, L_Q, _ = x.shape
+        _, L_K, _ = mem.shape
 
-        # Project and reshape.
-        Q = self.q(x).view(B, L, self.h, self.d_k).transpose(1, 2)
-        K = self.k(mem).view(B, mem.size(1), self.h, self.d_k).transpose(1, 2)
-        V = self.v(mem).view(B, mem.size(1), self.h, self.d_k).transpose(1, 2)
+        # Project decoder states to queries. 
+        Q = self.q(x).view(B, L_Q, self.h, self.d_k).transpose(1, 2)
+        
+        # Project encoder memory to keys. 
+        K = self.k(mem).view(B, L_K, self.h, self.d_k).transpose(1, 2)
 
-        # Compute scaled dot product attention, apply softmax,
-        # get weighted sum, recombine heads. 
-        scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(self.d_k)
-        weights = torch.softmax(scores, dim=-1)
-        out = torch.matmul(weights, V).transpose(1, 2).contiguous().view(B, L, -1)
+        # Project encoder memory to values.
+        V = self.v(mem).view(B, L_K, self.h, self.d_k).transpose(1, 2)
 
+        # Apply full attention. 
+        attn = self.attention(Q, K, V)
+
+        # Recombine all attention heads.
+        out = out.transpose(1, 2).contiguous().view(B, L_Q, -1)
+
+        # Return final learned projection. 
         return self.proj(out)
     
 # Designed based on Jack's Transformer model.
