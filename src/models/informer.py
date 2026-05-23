@@ -210,6 +210,7 @@ class DataEmbedding(nn.Module):
             Maximum sequence length the model will ever see through 
             positional encoding. 
         """
+        super().__init__()
         self.val = SpatialProjection(d_model, height, width)
         self.pos = PositionalEncoding(d_model, seq_len, dropout)
         self.temporal = TemporalEmbedding(d_model)
@@ -235,7 +236,7 @@ class DataEmbedding(nn.Module):
         pos = self.pos(val)
         temporal = self.temporal(date)
 
-        x = val + pos + temporal
+        x = pos + temporal
         return self.dropout(x)
     
 
@@ -298,7 +299,7 @@ class ProbSparseAttention(nn.Module):
     (B, L, d_model) -> (B, L, d_model) using (B, num_heads, L, D) internally,
     where D = d_model // num_heads
     """
-    def __init__(self, masked: bool, dropout: float, factor: int):
+    def __init__(self, masked: bool, factor: int, dropout: float):
         """Build the ProbSparse attention module.
 
         Parameters
@@ -626,7 +627,7 @@ class SelfAttentionLayer(nn.Module):
         V = self.v(x).view(B, L, self.h, self.d_k).transpose(1, 2)
 
         # Apply attention mechanism. 
-        out = self.attn(Q, K, V).transpose(1, 2).contiguous().view(B, L, -1)
+        out = self.attention(Q, K, V).transpose(1, 2).contiguous().view(B, L, -1)
 
         return self.proj(out)
 
@@ -692,7 +693,7 @@ class CrossAttentionLayer(nn.Module):
         attn = self.attention(Q, K, V)
 
         # Recombine all attention heads.
-        out = out.transpose(1, 2).contiguous().view(B, L_Q, -1)
+        out = attn.transpose(1, 2).contiguous().view(B, L_Q, -1)
 
         # Return final learned projection. 
         return self.proj(out)
@@ -1131,7 +1132,10 @@ class ProbSparseInformer(nn.Module):
         self.label_len = label_len
 
         # Encoder Embedding. 
-        self.enc_embedding = DataEmbedding(d_model, height, width, dropout)
+        self.enc_embedding = DataEmbedding(d_model, height, width, dropout, context_len)
+
+        # Decoder Embedding. 
+        self.dec_embedding = DataEmbedding(d_model, height, width, dropout, seq_len=(label_len + horizon))
 
         # Full encoder stack with ProbSparse self-attention. 
         encoder_layers = []
