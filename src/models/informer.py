@@ -1062,7 +1062,7 @@ class OutputProjectionHead(nn.Module):
         # Reshape to the 2D SST map. 
         return x.view(B, L, self.H, self.W)
   
-#TODO: RE-EVALUATE, UPDATE, AND VERIFY
+# The final combined ProbSparse Informer implementation. 
 class ProbSparseInformer(nn.Module):
     """ProbSparse Attention Informer for SST forecasting. 
 
@@ -1080,7 +1080,8 @@ class ProbSparseInformer(nn.Module):
         n_decoder_layers: int = 2,
         d_ff: int = 512,
         dropout: float = 0.1,
-        factor: int = 5
+        factor: int = 5,
+        label_len: int = None
     ):
         """Build the full ProbSparse Informer from its component classes.
 
@@ -1109,7 +1110,11 @@ class ProbSparseInformer(nn.Module):
             Dropout probability used in positional encoding, attention, FFN, 
             and residual connections.
         factor : float
-            Factor applied to control ratio of selected queries. 
+            Factor applied to control ratio of selected queries.
+        label_len : int
+            Number of decoder start tokens. 
+            If provided, it will be concat(start_tokens, zeros). 
+            Else, it will be (context_len // 2).
         """
         super().__init__()
         self.h = height
@@ -1118,38 +1123,70 @@ class ProbSparseInformer(nn.Module):
         self.horizon = horizon
         self.d_model = d_model
 
-        # Spatial encoding. 
-        self.spatial_enc = CNNSpatialEncoding(d_model)
+        # Decoder start token length. 
+        # Informer decoder receives historical tokens plus zero placeholders 
+        # (if required). 
+        if label_len is None:
+            label_len = (context_len // 2)
+        self.label_len = label_len
 
-        # Positional encoding. 
-        self.pos_enc = PositionalEncoding(d_model, context_len, dropout)
+        # Encoder Embedding. 
+        self.enc_embedding = DataEmbedding(d_model, height, width, dropout)
 
         # Full encoder stack with ProbSparse self-attention. 
-        encoder_layers = [
-            EncoderLayer(
-                SelfAttentionLayer(d_model, n_heads, dropout, factor),
-                FeedForwardBlock(d_model, d_ff, dropout),
-                d_model, dropout
-            ) for _ in range(n_encoder_layers)
-        ]
-        self.encoder = InformerEncoder(encoder_layers, d_model)
+        encoder_layers = []
+        for _ in range(n_encoder_layers):
+            encoder_layers.append(
+                EncoderLayer(
+                    # Multi-head ProbSparse self-attention.
+                    SelfAttentionLayer(
+                        # Encoder uses unmasked attention, 
+                        # allowing every timestep to attend globally.
+                        ProbSparseAttention(False, factor, dropout),
+                        d_model, n_heads
+                    ),
+
+                    # Position-wise feed-forward.
+                    FeedForwardBlock(d_model, d_ff, dropout), 
+                    
+                    d_model, dropout
+                )
+            )
+
+        # Encoder Distillation Layers 
+        distill_layers = []
+        for _ in range((n_encoder_layers - 1)):
+            distill_layers.append(EncoderDistillation(d_model))
+
+        self.encoder = InformerEncoder(encoder_layers, distill_layers, d_model)
 
         # Full decoder stack with self-attention and cross-attention. 
-        decoder_layers = [
-            DecoderLayer(
-                SelfAttentionLayer(d_model, n_heads, dropout, factor),
-                CrossAttentionLayer(d_model, n_heads),
-                FeedForwardBlock(d_model, d_ff, dropout),
-                d_model, dropout
-            ) for _ in range(n_decoder_layers)
-        ]
-        self.decoder = InformerDecoder(decoder_layers, d_model)
+        decoder_layers = []
+        for _ in range(n_decoder_layers):
+            decoder_layers.append(
+                DecoderLayer(
+                    # Masked Decoder ProbSparse self-attention. 
+                    # Causal masking prevents future leakage.
+                    SelfAttentionLayer(
+                        ProbSparseAttention(True, factor, dropout),
+                        d_model, n_heads,
+                    ),
 
-        # Creates a learnable tensor of zeros. 
-        self.dec_input_init = nn.Parameter(torch.zeros(1, horizon, d_model))
+                    # Cross-attention allows the decoder to attend to encoder memory.
+                    CrossAttentionLayer(d_model, n_heads, dropout),
+
+                    # Position-wise feed-forward.
+                    FeedForwardBlock(d_model, d_ff, dropout),
+
+                    d_model, dropout
+                )
+            )
+        
+        self.decoder = InformerDecoder(decoder_layers, d_model)
 
         # Projection from decoder output to the SST grid.
         self.proj_head = OutputProjectionHead(d_model, height, width)
+    
     
     def forward(self, x):
         """Run a batch of SST history windows through the Informer.
