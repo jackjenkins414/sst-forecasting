@@ -508,15 +508,71 @@ class ProbSparseAttention(nn.Module):
 
         return context.contiguous()
     
-# TODO: Finish class framework. 
-class FullAttention(nn.Module):
-    """TODO
-    """
-    def __init__(self):
-        return
 
-    def forward(self, x):
-        return
+# Full attention for cross attention.  
+class FullAttention(nn.Module):
+    """Computes full scaled dot-product attention across every query-key pair. 
+    Used for encoder-decoder cross-attention. 
+
+    (B, L, d_model) -> (B, L, d_model)
+    """
+    def __init__(self, masked: bool, dropout: float):
+        """Build the full attention module.
+
+        Parameters
+        ----------
+        masked : bool
+            Controls whether or not a causal mask is applied. 
+        dropout : float
+            Dropout probability applied to attention weights after softmax.
+        """
+        super().__init__()
+        self.masked = masked
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, Q, K, V):
+        """Compute full scaled dot-product attention.
+
+        Parameters
+        ----------
+        Q, K, V : torch.Tensor
+            Query, key, value tensors.
+            All of shape (B, L_x, d_model).
+
+        Returns
+        ----------
+        torch.Tensor
+            Shape (B, L_Q, d_model). 
+            Attention output after selecting the top-u queries.
+        """
+        # Per-head feature dimension.
+        D = Q.shape[-1]
+
+        # Scaled dot-product scores according to the transformer paper upon
+        # which the informer is based. 
+        scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(D)
+
+        # Apply the causal mask if required. 
+        if self.masked:
+            # An upper triangular mask removes access to all future positions. 
+            mask = torch.triu(torch.ones(scores.shape[-2], 
+                                         scores.shape[-1], 
+                                         device=scores.device), diagonal=1
+                            ).bool()
+            
+            # Replace masked positions with -inf before softmax.
+            # NOTE: Consider using -1e9 instead of -inf for stability. 
+            scores = scores.masked_fill(mask, float("-inf"))
+
+        # Scaled dot-product attention scores. 
+        attn = torch.softmax(scores, dim=-1)
+
+        # Regularise.
+        attn = self.dropout(attn)
+
+        # Return the weighted sum of values. 
+        return torch.matmul(attn, V)
+
     
 #TODO: RE-EVALUATE AND REPLACE
 class SelfAttentionLayer(nn.Module):
