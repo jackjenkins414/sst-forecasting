@@ -4,11 +4,11 @@ Compare all experiment runs visually.
 Reads every run_*/config.json + metrics.json and produces two figures:
 
   Figure 1 — Hyperparameter vs RMSE scatter plots
-      One subplot per searchable hyperparameter.  Each point is one run.
-      Makes it easy to see which parameters correlate with lower error.
+      One subplot per searchable hyperparameter.  Each point is one run,
+      coloured by model type.
 
   Figure 2 — RMSE-per-step curves (overlaid)
-      Every run as a faint line; top-5 runs highlighted and labelled.
+      Background lines coloured by model type; top-5 runs highlighted.
       Persistence baseline shown for reference.
       A second panel shows skill-score curves overlaid the same way.
 
@@ -16,6 +16,7 @@ Usage
 -----
     python scripts/compare_runs.py
     python scripts/compare_runs.py --out experiments/comparison.png
+    python scripts/compare_runs.py --top_n 10
 """
 
 import argparse
@@ -29,19 +30,39 @@ sys.path.append(str(PROJECT_ROOT))
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+import matplotlib.patches as mpatches
 
 RESULTS_DIR = PROJECT_ROOT / "experiments/results"
 HORIZON     = 7
 DAYS        = np.arange(1, HORIZON + 1)
 
-# Hyperparameters to plot (config key → display label)
+# Colour per model architecture — add entries here as new models are registered
+MODEL_COLOURS = {
+    "tubelet":     "#4e79a7",  # blue
+    "lstm":        "#f28e2b",  # orange
+    "convlstm":    "#59a14f",  # green
+    "rnn":         "#e15759",  # red
+    "transformer": "#b07aa1",  # purple
+    "unknown":     "#9c9c9c",  # grey
+}
+
+# Hyperparameters to scatter — common and model-specific.
+# Runs that don't have a key just get skipped in that subplot.
 PARAMS = {
+    # shared
     "learning_rate": "Learning rate",
+    "dropout":       "Dropout",
+    # tubelet / transformer
     "n_heads":       "Attention heads",
     "n_layers":      "Layers",
-    "lr_factor":     "LR factor",
-    "dropout":       "Dropout",
+    "lr_factor":     "LR decay factor",
     "anomaly_alpha": "Anomaly α",
+    # lstm / rnn
+    "hidden_size":   "Hidden size",
+    "d_spatial":     "Spatial dim",
+    # convlstm
+    "hidden_dim":    "ConvLSTM hidden channels",
+    "kernel_size":   "Conv kernel size",
 }
 
 
@@ -61,30 +82,32 @@ def load_runs() -> list[dict]:
         with open(metrics_f) as f: metrics = json.load(f)
 
         # Normalise key names across old and new run formats
-        config.setdefault("anomaly_alpha", config.pop("anomaly_alpha", 0.0))
         config.setdefault("learning_rate", config.pop("lr", config.get("learning_rate")))
+        model_type = config.get("model_type", "unknown")
 
-        rmse_steps = [
-            metrics["rmse_per_step"][f"day_{d}"]["model"]
-            if isinstance(metrics["rmse_per_step"][f"day_{d}"], dict)
-            else metrics["rmse_per_step"][f"day_{d}"]
-            for d in DAYS
-        ]
-        pers_steps = [
-            metrics["rmse_per_step"][f"day_{d}"]["persistence"]
-            if isinstance(metrics["rmse_per_step"][f"day_{d}"], dict)
-            else None
-            for d in DAYS
-        ]
+        rmse_steps = []
+        pers_steps_raw = []
+        for d in DAYS:
+            entry = metrics["rmse_per_step"][f"day_{d}"]
+            if isinstance(entry, dict):
+                rmse_steps.append(entry["model"])
+                pers_steps_raw.append(entry.get("persistence"))
+            else:
+                rmse_steps.append(entry)
+                pers_steps_raw.append(None)
+
+        mean_rmse = metrics["mean_rmse"]
+        if isinstance(mean_rmse, dict):
+            mean_rmse = mean_rmse["model"]
 
         runs.append({
             "name":       run_dir.name,
+            "model_type": model_type,
             "config":     config,
-            "mean_rmse":  metrics["mean_rmse"]["model"]
-                          if isinstance(metrics["mean_rmse"], dict)
-                          else metrics["mean_rmse"],
+            "mean_rmse":  mean_rmse,
             "rmse_steps": np.array(rmse_steps, dtype=float),
-            "pers_steps": np.array(pers_steps, dtype=float) if pers_steps[0] is not None else None,
+            "pers_steps": np.array(pers_steps_raw, dtype=float)
+                          if pers_steps_raw[0] is not None else None,
             "epochs":     metrics.get("epochs_trained", "?"),
         })
 
@@ -97,38 +120,35 @@ def load_runs() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def plot_param_scatter(runs: list[dict], save_path: Path):
-    n_params = len(PARAMS)
-    ncols    = 3
-    nrows    = (n_params + ncols - 1) // ncols
+    # Only show subplots where at least one run has the param
+    active_params = {
+        k: v for k, v in PARAMS.items()
+        if any(r["config"].get(k) is not None for r in runs)
+    }
+    if not active_params:
+        print("No hyperparameter data found — skipping scatter plot.")
+        return
 
+    ncols = 3
+    nrows = (len(active_params) + ncols - 1) // ncols
     fig, axes = plt.subplots(nrows, ncols, figsize=(15, 4 * nrows))
     fig.suptitle("Hyperparameter vs Mean RMSE (°C) — all runs", fontsize=13)
     axes = axes.flatten()
 
-    mean_rmses = np.array([r["mean_rmse"] for r in runs])
-    vmin, vmax = mean_rmses.min(), mean_rmses.max()
-    cmap       = cm.RdYlGn_r  # low RMSE = green, high = red
+    model_types = sorted({r["model_type"] for r in runs})
 
-    for ax, (key, label) in zip(axes, PARAMS.items()):
-        vals = [r["config"].get(key) for r in runs]
-        # Skip if all None
-        if all(v is None for v in vals):
-            ax.set_visible(False)
-            continue
+    for ax, (key, label) in zip(axes, active_params.items()):
+        for mt in model_types:
+            mt_runs = [r for r in runs if r["model_type"] == mt and r["config"].get(key) is not None]
+            if not mt_runs:
+                continue
+            xs = [r["config"][key] for r in mt_runs]
+            ys = [r["mean_rmse"]   for r in mt_runs]
+            colour = MODEL_COLOURS.get(mt, MODEL_COLOURS["unknown"])
+            ax.scatter(xs, ys, color=colour, s=60, edgecolors="black",
+                       linewidths=0.4, label=mt, zorder=3, alpha=0.85)
 
-        xs  = [v for v, r in zip(vals, runs) if v is not None]
-        ys  = [r["mean_rmse"] for v, r in zip(vals, runs) if v is not None]
-        cs  = [r["mean_rmse"] for v, r in zip(vals, runs) if v is not None]
-
-        sc = ax.scatter(xs, ys, c=cs, cmap=cmap, vmin=vmin, vmax=vmax,
-                        s=80, edgecolors="black", linewidths=0.5, zorder=3)
-
-        # Annotate the best point
-        best_idx = int(np.argmin(ys))
-        ax.annotate(f"  {ys[best_idx]:.4f}", (xs[best_idx], ys[best_idx]),
-                    fontsize=7, color="darkgreen")
-
-        # Log scale for LR
+        # Log scale for learning rate
         if key == "learning_rate":
             ax.set_xscale("log")
 
@@ -136,11 +156,16 @@ def plot_param_scatter(runs: list[dict], save_path: Path):
         ax.set_ylabel("Mean RMSE (°C)", fontsize=9)
         ax.grid(True, alpha=0.3)
 
-    # Hide unused subplots
-    for ax in axes[n_params:]:
+    # Legend — one entry per model type, placed on the last active axis
+    handles = [
+        mpatches.Patch(color=MODEL_COLOURS.get(mt, MODEL_COLOURS["unknown"]), label=mt)
+        for mt in model_types
+    ]
+    axes[len(active_params) - 1].legend(handles=handles, fontsize=8, title="Model")
+
+    for ax in axes[len(active_params):]:
         ax.set_visible(False)
 
-    fig.colorbar(sc, ax=axes[:n_params], shrink=0.6, label="Mean RMSE (°C)")
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
     print(f"Saved: {save_path}")
@@ -155,30 +180,25 @@ def plot_curves(runs: list[dict], save_path: Path, top_n: int = 5):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
     fig.suptitle("RMSE & Skill per Forecast Day — all runs", fontsize=13)
 
-    mean_rmses = np.array([r["mean_rmse"] for r in runs])
-    norm       = plt.Normalize(mean_rmses.min(), mean_rmses.max())
-    cmap       = cm.RdYlGn_r
-
-    # Persistence from the best run (same across all runs)
+    # Persistence from the first run that has it (same signal for all runs)
     pers_run = next((r for r in runs if r["pers_steps"] is not None), None)
     if pers_run:
         ax1.plot(DAYS, pers_run["pers_steps"], "k--", linewidth=2,
                  label="Persistence", zorder=5)
         ax2.axhline(0, color="black", linewidth=1.2, zorder=5)
 
-    # All runs — faint background lines
+    # Background lines — coloured by model type, faint
     for r in runs:
-        colour = cmap(norm(r["mean_rmse"]))
-        ax1.plot(DAYS, r["rmse_steps"], color=colour, alpha=0.25, linewidth=1)
+        colour = MODEL_COLOURS.get(r["model_type"], MODEL_COLOURS["unknown"])
+        ax1.plot(DAYS, r["rmse_steps"], color=colour, alpha=0.20, linewidth=0.9)
         if pers_run:
             skill = 1 - r["rmse_steps"] / pers_run["pers_steps"]
-            ax2.plot(DAYS, skill, color=colour, alpha=0.25, linewidth=1)
+            ax2.plot(DAYS, skill, color=colour, alpha=0.20, linewidth=0.9)
 
-    # Top N — bold and labelled
-    colours_top = plt.cm.tab10(np.linspace(0, 0.9, top_n))
+    # Top N — bold, labelled, coloured by model type (darker shade)
     for i, r in enumerate(runs[:top_n]):
-        label  = f"#{i+1} {r['name'][-15:]} RMSE={r['mean_rmse']:.4f}"
-        colour = colours_top[i]
+        colour = MODEL_COLOURS.get(r["model_type"], MODEL_COLOURS["unknown"])
+        label  = f"#{i+1} [{r['model_type']}] {r['name'][-13:]} {r['mean_rmse']:.4f}°C"
         ax1.plot(DAYS, r["rmse_steps"], color=colour, linewidth=2.2,
                  marker="o", markersize=4, label=label, zorder=4)
         if pers_run:
@@ -186,16 +206,25 @@ def plot_curves(runs: list[dict], save_path: Path, top_n: int = 5):
             ax2.plot(DAYS, skill, color=colour, linewidth=2.2,
                      marker="o", markersize=4, label=label, zorder=4)
 
+    # Model-type legend patch (background line key)
+    model_types = sorted({r["model_type"] for r in runs})
+    type_handles = [
+        mpatches.Patch(color=MODEL_COLOURS.get(mt, MODEL_COLOURS["unknown"]),
+                       alpha=0.5, label=f"{mt} (all runs)")
+        for mt in model_types
+    ]
+
     ax1.set_xlabel("Forecast day");  ax1.set_ylabel("RMSE (°C)")
-    ax1.set_title("RMSE per step");  ax1.legend(fontsize=7); ax1.grid(alpha=0.3)
+    ax1.set_title("RMSE per step")
+    ax1.legend(fontsize=7, handles=ax1.get_legend_handles_labels()[0]
+               + type_handles)
+    ax1.grid(alpha=0.3)
 
     ax2.set_xlabel("Forecast day");  ax2.set_ylabel("Skill vs persistence")
     ax2.set_title("Skill score per step")
-    ax2.legend(fontsize=7);          ax2.grid(alpha=0.3)
-
-    sm = cm.ScalarMappable(cmap=cmap, norm=norm)
-    sm.set_array([])
-    fig.colorbar(sm, ax=[ax1, ax2], shrink=0.7, label="Mean RMSE (°C)")
+    ax2.legend(fontsize=7, handles=ax2.get_legend_handles_labels()[0]
+               + type_handles)
+    ax2.grid(alpha=0.3)
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
@@ -223,9 +252,13 @@ def main():
         print("No completed runs found in", RESULTS_DIR)
         return
 
-    print(f"Loaded {len(runs)} runs")
-    print(f"Best: {runs[0]['name']}  RMSE={runs[0]['mean_rmse']:.4f}  "
-          f"params={runs[0]['config']}")
+    model_counts = {}
+    for r in runs:
+        model_counts[r["model_type"]] = model_counts.get(r["model_type"], 0) + 1
+    counts_str = "  ".join(f"{mt}={n}" for mt, n in sorted(model_counts.items()))
+    print(f"Loaded {len(runs)} runs  [{counts_str}]")
+    print(f"Best overall: {runs[0]['name']}  [{runs[0]['model_type']}]  "
+          f"RMSE={runs[0]['mean_rmse']:.4f}")
 
     plot_param_scatter(runs, out_dir / "comparison_params.png")
     plot_curves(runs,        out_dir / "comparison_curves.png", top_n=args.top_n)
@@ -233,11 +266,9 @@ def main():
     print("\nTop 5 runs:")
     for i, r in enumerate(runs[:5], 1):
         cfg = r["config"]
-        print(f"  {i}. RMSE={r['mean_rmse']:.4f}  "
-              f"lr={cfg.get('learning_rate'):.2e}  "
-              f"heads={cfg.get('n_heads')}  layers={cfg.get('n_layers')}  "
-              f"alpha={cfg.get('anomaly_alpha', 0):.2f}  "
-              f"dropout={cfg.get('dropout'):.2f}  "
+        print(f"  {i}. [{r['model_type']:12s}] RMSE={r['mean_rmse']:.4f}  "
+              f"lr={cfg.get('learning_rate', float('nan')):.2e}  "
+              f"dropout={cfg.get('dropout', float('nan')):.2f}  "
               f"epochs={r['epochs']}")
 
 

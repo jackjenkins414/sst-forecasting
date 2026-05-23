@@ -197,6 +197,7 @@ def main():
 
     # Persist all hyperparameters immediately so the run is self-documented
     config = {
+        "model_type":          "tubelet",
         "context_len":         args.context_len,
         "horizon":             args.horizon,
         "batch_size":          args.batch_size,
