@@ -5,6 +5,19 @@ import torch
 import torch.nn as nn
 import math
 
+# HELPER FUNCTION - Simple Sequential Temporal Index Builder
+# NOTE: Assumes 365 day years. 
+def build_temporal_indices(batch_size, seq_len, device):
+    """
+    Builds simple sequential temporal indices.
+
+    Returns
+    -------
+    torch.Tensor
+        Dates of shape (B, L)
+    """
+    idx = torch.arange(seq_len, device=device) % 365
+    return idx.unsqueeze(0).expand(batch_size, seq_len)
 
 # Input embedding, imported from Jack's spatial-flat transformer model.  
 class SpatialProjection(nn.Module):
@@ -82,7 +95,8 @@ class TemporalEmbedding(nn.Module):
         super().__init__()
         # Creates a learnable look up table with a vector corresponding to each 
         # day. Each day has its own trainable vector. 
-        self.day = nn.Embedding(366, d_model)
+        # NOTE: Assumes 365 day years. 
+        self.day = nn.Embedding(365, d_model)
 
     def forward(self, date):
         """Convert day-of-year indices into learnable embeddings.
@@ -91,7 +105,7 @@ class TemporalEmbedding(nn.Module):
         ----------
         date : torch.Tensor
             Day-of-year indices of shape (B, L). Each entry should be an 
-            integer in the range [0, 365].
+            integer in the range [0, 364].
 
         Returns
         -------
@@ -99,7 +113,7 @@ class TemporalEmbedding(nn.Module):
             Learnable temporal embeddings of shape (B, L, d_model). 
             Each timestep carries explicit seasonal information for the Informer.
         """
-        # Note: date expressed as the day of the year between 0 and 365.
+        # Note: date expressed as the day of the year between 0 and 364.
         # Returns a learnable seasonal representation.  
         return self.day(date)
 
@@ -1192,7 +1206,7 @@ class ProbSparseInformer(nn.Module):
         self.proj_head = OutputProjectionHead(d_model, height, width)
     
 
-    def build_decoder_input(self, x, dates):
+    def build_decoder_input(self, x):
         """Constructs the Informer's generative decoder input.
 
         The decoder receives:
@@ -1222,24 +1236,17 @@ class ProbSparseInformer(nn.Module):
         # Use the final known SST observations as decoder start tokens.
         token_x = x[:, -self.label_len:]
 
-        # Corresponding seasonal indices.
-        token_day = dates[:, -self.label_len:]
-
         # Apply zeroed SST placeholders for future prediction steps.
         # The decoder learns to replace these with forecasts.
         zeros = torch.zeros(B, self.horizon, 1, self.h, self.w, device=x.device)
 
-        # Placeholder future temporal indices to replace during training. 
-        zero_day = torch.zeros(B, self.horizon, dtype=torch.long, device=x.device)
-
         # Concatenate history and future placeholders. 
         dec_x = torch.cat([token_x, zeros], dim=1)
-        dec_day = torch.cat([token_day, zero_day], dim=1)
 
-        return dec_x, dec_day
+        return dec_x
     
 
-    def forward(self, x, dates):
+    def forward(self, x):
         """Run a batch of SST history windows through the Informer.
 
         Parameters
@@ -1255,16 +1262,29 @@ class ProbSparseInformer(nn.Module):
         torch.Tensor
             Forecast grids of shape (B, horizon, H, W).
         """
-        enc_x = self.enc_embedding(x, dates)
+        B = x.size(0)
+
+        enc_dates = self.build_temporal_indices(
+            B,
+            self.context_len,
+            x.device,
+        )
+
+        enc_x = self.enc_embedding(x, enc_dates)
 
         # Generate encoder memory representations. 
         mem = self.encoder(enc_x)
 
         # Construct Informer generative decoder inputs.
-        dec_x_raw, dec_day = self.build_decoder_input(x, dates)
+        dec_x_raw = self.build_decoder_input(x)
+
+        dec_dates = self.build_temporal_indices(
+            B, (self.label_len + self.horizon), x.device,
+        )
+        dec_x = self.dec_embedding(dec_x_raw, dec_dates)
 
         # Embed the decoder's SST inputs.
-        dec_x = self.dec_embedding(dec_x_raw, dec_day)
+        dec_x = self.dec_embedding(dec_x_raw)
 
         # Generate the decoder's hidden states.
         dec_out = self.decoder(dec_x, mem)
