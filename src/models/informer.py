@@ -574,7 +574,7 @@ class FullAttention(nn.Module):
         return torch.matmul(attn, V)
 
     
-#TODO: RE-EVALUATE AND REPLACE
+# Computes the self attention for a given attention mechanism. 
 class SelfAttentionLayer(nn.Module):
     """Multi-head ProbSparse self-attention layer.
 
@@ -583,7 +583,7 @@ class SelfAttentionLayer(nn.Module):
     # TODO: Confirm if this is L or u. 
     (B, L, d_model) -> (B, L, d_model)
     """
-    def __init__(self, d_model, n_heads, dropout, factor):
+    def __init__(self, attention, d_model, n_heads):
         """Build the attention.
 
         Parameters
@@ -603,7 +603,7 @@ class SelfAttentionLayer(nn.Module):
         self.k = nn.Linear(d_model, d_model)
         self.v = nn.Linear(d_model, d_model)
         self.proj = nn.Linear(d_model, d_model)
-        self.attn = ProbSparseAttention(dropout, factor)
+        self.attention = attention
     
     def forward(self, x):
         """Compute self-attention on input sequence.
