@@ -1041,7 +1041,7 @@ class InformerDecoder(nn.Module):
             x = layer(x, memory)
         return self.norm(x)
 
-#TODO: RE-EVALUATE AND REPLACE
+# Project decoder vectors back to the SST grid. 
 class OutputProjectionHead(nn.Module):
     """Linearly project d_model to reshape to H*W SST grid. 
 
@@ -1054,8 +1054,13 @@ class OutputProjectionHead(nn.Module):
         self.proj = nn.Linear(d_model, H*W)
 
     def forward(self, x):
+        B, L, _ = x.shape
+
+        # Project to flattened spatial grids. 
         x = self.proj(x)
-        return x.view(x.size(0), x.size(1), self.H, self.W)
+
+        # Reshape to the 2D SST map. 
+        return x.view(B, L, self.H, self.W)
   
 #TODO: RE-EVALUATE, UPDATE, AND VERIFY
 class ProbSparseInformer(nn.Module):
