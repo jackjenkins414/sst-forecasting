@@ -5,20 +5,6 @@ import torch
 import torch.nn as nn
 import math
 
-# HELPER FUNCTION - Simple Sequential Temporal Index Builder
-# NOTE: Assumes 365 day years. 
-def build_temporal_indices(batch_size, seq_len, device):
-    """
-    Builds simple sequential temporal indices.
-
-    Returns
-    -------
-    torch.Tensor
-        Dates of shape (B, L)
-    """
-    idx = torch.arange(seq_len, device=device) % 365
-    return idx.unsqueeze(0).expand(batch_size, seq_len)
-
 # Input embedding, imported from Jack's spatial-flat transformer model.  
 class SpatialProjection(nn.Module):
     """Project flattened SST grid to d_model.
@@ -1205,6 +1191,19 @@ class ProbSparseInformer(nn.Module):
         # Projection from decoder output to the SST grid.
         self.proj_head = OutputProjectionHead(d_model, height, width)
     
+    # HELPER FUNCTION - Simple Sequential Temporal Index Builder
+    # NOTE: Assumes 365 day years. 
+    def build_temporal_indices(batch_size, seq_len, device):
+        """
+        Builds simple sequential temporal indices.
+
+        Returns
+        -------
+        torch.Tensor
+            Dates of shape (B, L)
+        """
+        idx = torch.arange(seq_len, device=device) % 365
+        return idx.unsqueeze(0).expand(batch_size, seq_len)
 
     def build_decoder_input(self, x):
         """Constructs the Informer's generative decoder input.
