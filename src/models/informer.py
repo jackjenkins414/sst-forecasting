@@ -843,7 +843,7 @@ class EncoderLayer(nn.Module):
         x = self.res2(x, self.ff)
         return x
     
-#TODO: RE-EVALUATE AND REPLACE
+# Runs an encoder distillation per the paper. 
 class EncoderDistillation(nn.Module):
     """Self attention distillation in line with the Informer paper. 
     Reduces sequence length by factor of 2 according to MaxPool(ELU(Conv1d(x))). 
@@ -885,33 +885,33 @@ class EncoderDistillation(nn.Module):
         # Restore transposition. 
         return x.transpose(1, 2)
     
-#TODO: RE-EVALUATE AND REPLACE
+# A full encoder informer stack. 
 class InformerEncoder(nn.Module):
-    """Informer encoder stack with ProbSparse self-attention and distillation.
+    """Informer encoder stack with ProbSparse self-attention and distillation. 
 
-    A (#NOTE: ONCE COMPLETED) strict implementation of the paper's ProbSparse
-    encoding methodology. 
-
-    (B, L, d_model) -> (B, L, d_model)
+    (B, L, d_model) -> (B, L_new, d_model), where L_new is the new length 
+    after distillation. 
     """
     # TODO: See whether to use ModuleList or just an int for no of layers. 
-    def __init__(self, layers: list[nn.Module], d_model: int):
+    def __init__(self, layers: list[nn.Module], distill_layers: list[nn.Module], d_model: int):
         """Construct the encoder stack.
 
         Parameters
         ----------
         # TODO: See whether to use ModuleList or just an int for no of layers. 
         layers : list[nn.Module]
-            A list of encoder layers. Each layer is expected to implement
+            A list of encoder blocks. Each layer is expected to implement
             ProbSparse self-attention and feed-forward with residuals.
+        distill_layers : list[nn.Module]
+            Distillation layers inserted between encoder blocks.
         d_model : int
             Working dimension of the encoder. 
         """
         super().__init__()
         # TODO: See whether to use ModuleList or just an int for no of layers. 
         self.layers = nn.ModuleList(layers)
+        self.distill_layers = nn.ModuleList(distill_layers)
         self.norm = LayerNormalisation(d_model)
-        self.distill = EncoderDistillation(d_model)
 
     def forward(self, x):
         """Forward pass through the encoder stack.
@@ -928,10 +928,13 @@ class InformerEncoder(nn.Module):
             if distillation reduces sequence length.
         """
         for i, layer in enumerate(self.layers):
+            # Run ProbSparse Attention and FF. 
             x = layer(x)
-            # Apply distillation after every two layers.
-            if ((i % 2) == 1):
-                x = self.distill(x)
+            # Distill sequence after each layer except final layer.
+            if i < len(self.distill_layers):
+                x = self.distill_layers[i](x)
+        
+        # Final normalisation for the encoder. 
         return self.norm(x)
     
 #TODO: RE-EVALUATE AND REPLACE
