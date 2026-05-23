@@ -1187,7 +1187,54 @@ class ProbSparseInformer(nn.Module):
         # Projection from decoder output to the SST grid.
         self.proj_head = OutputProjectionHead(d_model, height, width)
     
+
+    def build_decoder_input(self, x, dates):
+        """Constructs the Informer's generative decoder input.
+
+        The decoder receives:
+            1. Known historical SST observations. 
+            2. Zero placeholders for future predictions. 
+
+        This enables efficient one-shot generative forecasting.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            SST input sequence of shape (B, L, 1, H, W)
+
+        dates : torch.Tensor
+            Seasonal indices for each timestep of shape (B, L). 
+
+        Returns
+        -------
+        dec_x:
+            (B, (label_len + horizon), 1, H, W)
+        dec_day:
+            (B, (label_len + horizon))
+        """
+        # Batch size. 
+        B = x.size(0)
+
+        # Use the final known SST observations as decoder start tokens.
+        token_x = x[:, -self.label_len:]
+
+        # Corresponding seasonal indices.
+        token_day = dates[:, -self.label_len:]
+
+        # Apply zeroed SST placeholders for future prediction steps.
+        # The decoder learns to replace these with forecasts.
+        zeros = torch.zeros(B, self.horizon, 1, self.h, self.w, device=x.device)
+
+        # Placeholder future temporal indices to replace during training. 
+        zero_day = torch.zeros(B, self.horizon, dtype=torch.long, device=x.device)
+
+        # Concatenate history and future placeholders. 
+        dec_x = torch.cat([token_x, zeros], dim=1)
+        dec_day = torch.cat([token_day, zero_day], dim=1)
+
+        return dec_x, dec_day
     
+
     def forward(self, x):
         """Run a batch of SST history windows through the Informer.
 
