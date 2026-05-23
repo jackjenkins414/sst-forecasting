@@ -381,7 +381,7 @@ class ProbSparseAttention(nn.Module):
 
         return Q_K, M_top
     
-    def initialise_non_selected_queries(self, V, L_Q):
+    def initialise_queries(self, V, L_Q):
         """Initialise context for the non-selected queries.
 
         Parameters
@@ -416,9 +416,62 @@ class ProbSparseAttention(nn.Module):
 
         return context
     
-    def update_context(self, context, V, scores, index, L_Q):
-        #TODO
-        return
+    def update_context(self, context, V, scores, index):
+        """Update only the top-u queries with full attention.
+
+        Parameters
+        ----------
+        context : torch.Tensor
+            The initial context tensor.
+
+        V : torch.Tensor
+            The value tensor.
+
+        scores : torch.Tensor
+            Full attention scores for the selected queries.
+
+        index : torch.Tensor
+            Indices of the top-u selected queries.
+
+        Returns
+        -------
+        torch.Tensor
+            The updated ProbSparse attention context tensor.
+        """
+        # Extract dimensions from V.
+        B, H, _, D = V.shape
+
+        # Update based on the causal mask. 
+        # NOTE: Confirm that true is for decoder, false is for encoder. 
+        if self.masked:
+            # Decoder Mask
+            # An upper triangular mask removes access to all future positions. 
+            mask = torch.triu(torch.ones(scores.shape[-2], 
+                                         scores.shape[-1], 
+                                         device=scores.device), diagonal=1
+                            ).bool()
+            
+            # Replace masked positions with -inf before softmax.
+            scores = scores.masked_fill(mask, float("-inf"))
+
+        # Scaled dot-product attention scores. 
+        attn = torch.softmax((scores / math.sqrt(D)), dim=-1)
+
+        # Regularise.
+        attn = self.dropout(attn)
+
+        # Get the weighted sum of values. 
+        context_update = torch.matmul(attn, V)
+
+        # Update the top-u query position attention outputs. 
+        context[
+            torch.arange(B)[:, None, None], 
+            torch.arange(H)[None, :, None], 
+            index, :
+            ] = context_update
+
+        return context
+    
     
     def forward(self, Q, K, V):
         """Compute ProbSparse attention.
@@ -427,16 +480,33 @@ class ProbSparseAttention(nn.Module):
         ----------
         Q, K, V : torch.Tensor
             Query, key, value tensors.
-            All of shape (B, L, d_model).
+            All of shape (B, L_x, d_model).
 
         Returns
         ----------
         torch.Tensor
-            Shape (B, L, d_model). 
+            Shape (B, L_Q, d_model). 
             Attention output after selecting the top-u queries.
         """
-        # TODO
-        return
+        # Extract dimensions. 
+        _, _, L_Q, _ = Q.shape
+        _, _, L_K, _ = K.shape
+
+        # Sampled keys and dominant queries. 
+        # Determined through the paper's formula _ = c * ln(L_x)
+        sample_k = min(L_K, (int(self.factor * math.ceil(math.log(L_K + 1)))))
+        top_n = min(L_Q, (int(self.factor * math.ceil(math.log(L_Q + 1)))))
+
+        # Compute the ProbSparse query-key scores for the top-u queries.
+        scores_top, index = self.prob_QK(Q, K, sample_k, top_n)
+
+        # Initialise the context tensor for all queries.
+        context = self.initialise_queries(V, L_Q)
+
+        # Update the dominant queries using full attention. 
+        context = self.update_context(context, V, scores_top, index)
+
+        return context.contiguous()
     
 # TODO: Finish class framework. 
 class FullAttention(nn.Module):
