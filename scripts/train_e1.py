@@ -63,6 +63,7 @@ from torch.utils.data import DataLoader, Subset
 # ── Project imports ──────────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from sst_forecasting.data.dataset import SSTWindowDataset
+from sst_forecasting.models.convlstm import SpatialConvLSTM
 from sst_forecasting.models.lstm import SpatialFlatLSTM
 from sst_forecasting.models.transformer import SpatialFlatTransformer
 from sst_forecasting.utils.metrics import rmse as rmse_metric
@@ -85,12 +86,16 @@ def _parse_args() -> argparse.Namespace:
                    help="Context window L in days.")
 
     # Model
-    p.add_argument("--model", choices=["lstm", "transformer"], required=True,
+    p.add_argument("--model", choices=["lstm", "transformer", "convlstm"], required=True,
                    help="Model architecture.")
     # LSTM hyperparams
     p.add_argument("--lstm-d-spatial", type=int, default=64)
     p.add_argument("--lstm-hidden", type=int, default=128)
     p.add_argument("--lstm-layers", type=int, default=2)
+    # ConvLSTM hyperparams
+    p.add_argument("--convlstm-hidden", type=int, nargs="+", default=[32, 64],
+                   help="Hidden channels per ConvLSTM layer, e.g. --convlstm-hidden 32 64 128")
+    p.add_argument("--convlstm-kernel", type=int, default=3)
     # Transformer hyperparams
     p.add_argument("--tf-d-model", type=int, default=128)
     p.add_argument("--tf-nhead", type=int, default=8)
@@ -155,6 +160,15 @@ def _build_model(args: argparse.Namespace, H: int, W: int) -> nn.Module:
             d_spatial=args.lstm_d_spatial,
             hidden_size=args.lstm_hidden,
             num_layers=args.lstm_layers,
+            dropout=args.dropout,
+        )
+    elif args.model == "convlstm":
+        return SpatialConvLSTM(
+            H=H, W=W,
+            context_len=args.context_len,
+            horizon=args.horizon,
+            hidden_channels=args.convlstm_hidden,
+            kernel_size=args.convlstm_kernel,
             dropout=args.dropout,
         )
     else:
@@ -253,9 +267,10 @@ def main() -> None:
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Device (CPU on Raijin) ────────────────────────────────────────────────
-    device = torch.device("cpu")
-    torch.set_num_threads(int(os.environ.get("OMP_NUM_THREADS", "1")))
+    # ── Device ────────────────────────────────────────────────────────────────
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if device.type == "cpu":
+        torch.set_num_threads(int(os.environ.get("OMP_NUM_THREADS", "1")))
 
     # ── Load metadata from Zarr ───────────────────────────────────────────────
     root = zarr.open_group(args.zarr_path, mode="r")
@@ -263,7 +278,7 @@ def main() -> None:
     norm_mean: float = float(root.attrs["norm_mean"])
     land_mask_arr: np.ndarray = np.array(root["land_mask"])   # (H, W) bool True=ocean
     H, W = land_mask_arr.shape
-    ocean_mask = torch.from_numpy(land_mask_arr).to(device)   # (H, W) bool
+    ocean_mask = torch.from_numpy(land_mask_arr).to(device)    # (H, W) bool, True=ocean
 
     print(f"[train_e1] Grid: H={H}, W={W}, ocean cells={int(ocean_mask.sum())}")
     print(f"[train_e1] norm_mean={norm_mean:.5f}, norm_std={norm_std:.5f}")

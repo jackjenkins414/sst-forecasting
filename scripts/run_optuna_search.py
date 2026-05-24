@@ -18,12 +18,15 @@ Usage
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT))
+
+from scripts.optuna_plots import save_study_plots
 
 import numpy as np
 import optuna
@@ -181,7 +184,7 @@ def make_objective(root, land_mask_np, lat, lon, norm_mean, norm_std,
 
         d_ff = d_model * 4  # maintain standard 4x FFN ratio
 
-        run_dir = RESULTS_DIR / datetime.now().strftime("run_%Y%m%d_%H%M%S")
+        run_dir = RESULTS_DIR / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_{os.getpid()}"
         run_dir.mkdir(parents=True, exist_ok=True)
 
         config = {
@@ -315,6 +318,7 @@ def main():
     study.optimize(objective, n_trials=args.n_trials, show_progress_bar=False)
 
     _print_summary(study)
+    save_study_plots(study, model_name="tubelet")
 
 
 def _print_summary(study: optuna.Study):

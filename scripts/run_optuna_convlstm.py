@@ -14,12 +14,15 @@ Usage
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT))
+
+from scripts.optuna_plots import save_study_plots
 
 import numpy as np
 import optuna
@@ -47,7 +50,11 @@ DB_PATH     = PROJECT_ROOT / "experiments/optuna_convlstm.db"
 
 CONTEXT_LEN         = 90
 HORIZON             = 7
-BATCH_SIZE          = 8   # ConvLSTM is memory-heavy (full H×W hidden states)
+BATCH_SIZE          = 4   # ConvLSTM keeps full H×W hidden states across all 90
+                          # timesteps; BPTT retains the whole graph, so even small
+                          # configs hit ~6-7 GB. B=8 OOMs on 12 GB. Large configs
+                          # (hidden=96, layers=4) OOM even at B=4 — the OOM guard
+                          # below prunes those so the wide search space is safe.
 NUM_EPOCHS          = 50
 EARLY_STOP_PATIENCE = 5
 RANDOM_SEED         = 42
@@ -61,12 +68,25 @@ RANDOM_SEED         = 42
 # ---------------------------------------------------------------------------
 
 SEARCH_SPACE = {
-    "lr":          FloatDistribution(1e-4, 2e-3, log=True),
-    "hidden_dim":  CategoricalDistribution([16, 32, 64, 96]),
-    "n_layers":    IntDistribution(1, 4),
-    "kernel_size": CategoricalDistribution([3, 5]),
-    "dropout":     FloatDistribution(0.0, 0.35),
-    "lr_factor":   FloatDistribution(0.4, 0.8),
+    "lr":            FloatDistribution(1e-4, 2e-3, log=True),
+    "hidden_dim":    CategoricalDistribution([16, 32, 64, 96]),
+    "n_layers":      IntDistribution(1, 4),
+    "kernel_size":   CategoricalDistribution([3, 5]),
+    "dropout":       FloatDistribution(0.0, 0.35),
+    "lr_factor":     FloatDistribution(0.4, 0.8),
+    "anomaly_alpha": FloatDistribution(0.0, 0.20),
+}
+
+# Baseline config injected as trial 0.
+# anomaly_alpha=0.0 guarantees a plain-MSE baseline is always tested.
+SEED_CONFIG = {
+    "lr":            5e-4,
+    "hidden_dim":    32,
+    "n_layers":      2,
+    "kernel_size":   3,
+    "dropout":       0.1,
+    "lr_factor":     0.5,
+    "anomaly_alpha": 0.0,
 }
 
 
@@ -84,6 +104,7 @@ def _params_from_config(config: dict) -> dict | None:
         "kernel_size": config.get("kernel_size"),
         "dropout":     config.get("dropout"),
         "lr_factor":   config.get("lr_factor"),
+        "anomaly_alpha": config.get("anomaly_alpha"),
     }
     if any(v is None for v in mapping.values()):
         return None
@@ -142,10 +163,12 @@ def make_objective(land_mask_np, norm_mean, norm_std,
                                                        SEARCH_SPACE["dropout"].high)
         lr_factor   = trial.suggest_float("lr_factor", SEARCH_SPACE["lr_factor"].low,
                                                         SEARCH_SPACE["lr_factor"].high)
+        anomaly_alpha = trial.suggest_float("anomaly_alpha", SEARCH_SPACE["anomaly_alpha"].low,
+                                                              SEARCH_SPACE["anomaly_alpha"].high)
 
         hidden_channels = [hidden_dim] * n_layers
 
-        run_dir = RESULTS_DIR / datetime.now().strftime("run_%Y%m%d_%H%M%S")
+        run_dir = RESULTS_DIR / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_{os.getpid()}"
         run_dir.mkdir(parents=True, exist_ok=True)
 
         config = {
@@ -158,6 +181,7 @@ def make_objective(land_mask_np, norm_mean, norm_std,
             "hidden_channels":     hidden_channels,
             "kernel_size":         kernel_size,
             "dropout":             dropout,
+            "anomaly_alpha":       anomaly_alpha,
             "num_epochs":          NUM_EPOCHS,
             "early_stop_patience": EARLY_STOP_PATIENCE,
             "learning_rate":       lr,
@@ -179,7 +203,7 @@ def make_objective(land_mask_np, norm_mean, norm_std,
         ).to(device)
 
         optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
-        criterion = AnomalyWeightedMSE(alpha=0.0)
+        criterion = AnomalyWeightedMSE(alpha=anomaly_alpha)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode="min", factor=lr_factor, patience=5,
             threshold=1e-3, min_lr=1e-5, cooldown=2,
@@ -199,6 +223,17 @@ def make_objective(land_mask_np, norm_mean, norm_std,
             )
         except optuna.exceptions.TrialPruned:
             raise
+        except RuntimeError as e:
+            # CUDA OOM can surface as OutOfMemoryError or a plain RuntimeError.
+            # Config too large for 12 GB VRAM — free memory and prune so the
+            # study keeps exploring the feasible part of the search space.
+            if "out of memory" not in str(e).lower():
+                raise
+            del model, optimizer
+            torch.cuda.empty_cache()
+            print(f"  Trial {trial.number:03d} OOM (hidden={hidden_dim}, "
+                  f"layers={n_layers}, k={kernel_size}) — pruned")
+            raise optuna.exceptions.TrialPruned()
 
         test_preds_norm, test_targets_norm = predict(model, test_loader, device)
         test_preds   = test_preds_norm   * norm_std + norm_mean
@@ -250,6 +285,10 @@ def main():
         pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=5),
     )
 
+    if not any(t.params == SEED_CONFIG for t in study.trials):
+        study.enqueue_trial(SEED_CONFIG)
+        print("Queued baseline config (alpha=0) as trial 0")
+
     n_loaded = load_previous_runs(study)
     print(f"Loaded {n_loaded} previous ConvLSTM runs into study "
           f"({len(study.trials)} total trials so far)")
@@ -280,6 +319,7 @@ def main():
     print(f"Starting {args.n_trials} new trials on {device}\n")
     study.optimize(objective, n_trials=args.n_trials, show_progress_bar=False)
     _print_summary(study)
+    save_study_plots(study, model_name="convlstm")
 
 
 def _print_summary(study: optuna.Study):

@@ -8,6 +8,7 @@ with config.json, metrics.json, a checkpoint, and a summary figure.
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -191,7 +192,7 @@ def main():
     torch.manual_seed(args.seed)
 
     # Each run gets its own timestamped directory
-    run_dir = RESULTS_DIR / datetime.now().strftime("run_%Y%m%d_%H%M%S")
+    run_dir = RESULTS_DIR / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_{os.getpid()}"
     run_dir.mkdir(parents=True, exist_ok=True)
     print(f"Run directory: {run_dir}")
 

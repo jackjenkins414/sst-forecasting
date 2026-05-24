@@ -43,6 +43,7 @@ MODEL_COLOURS = {
     "convlstm":    "#59a14f",  # green
     "rnn":         "#e15759",  # red
     "transformer": "#b07aa1",  # purple
+    "informer":    "#76b7b2",  # teal
     "unknown":     "#9c9c9c",  # grey
 }
 
