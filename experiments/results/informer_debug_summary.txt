@@ -1,0 +1,76 @@
+Grid: H=81 W=121 ocean cells=7890
+norm_mean=0.00000 norm_std=0.70023
+
+ProbSparse Informer model parameters: 5,090,121
+
+Training the ProbSparse Informer
+Epoch 01/8 | Train Loss: 0.799720 | Val Loss: 1.032246
+Epoch 02/8 | Train Loss: 0.686125 | Val Loss: 1.148182
+Epoch 03/8 | Train Loss: 0.651192 | Val Loss: 1.041768
+Epoch 04/8 | Train Loss: 0.634366 | Val Loss: 1.029556
+Epoch 05/8 | Train Loss: 0.618733 | Val Loss: 1.050155
+Epoch 06/8 | Train Loss: 0.606422 | Val Loss: 1.004847
+Epoch 07/8 | Train Loss: 0.599072 | Val Loss: 1.047698
+Epoch 08/8 | Train Loss: 0.590911 | Val Loss: 1.053307
+
+RNN model parameters: 9,535,487
+
+Training the RNN Baseline
+Epoch 01/8 | Train Loss: 0.690924 | Val Loss: 0.784739
+Epoch 02/8 | Train Loss: 0.610158 | Val Loss: 0.822392
+Epoch 03/8 | Train Loss: 0.592959 | Val Loss: 0.795584
+Epoch 04/8 | Train Loss: 0.580273 | Val Loss: 0.854357
+Epoch 05/8 | Train Loss: 0.569240 | Val Loss: 0.791460
+Epoch 06/8 | Train Loss: 0.559185 | Val Loss: 0.789007
+Epoch 07/8 | Train Loss: 0.553481 | Val Loss: 0.783269
+Epoch 08/8 | Train Loss: 0.549352 | Val Loss: 0.772951
+
+Evaluating the RNN Baseline
+
+ProbSparse Attention Encoder-Decoder Informer Experiment Summary
+-----------------------
+Context length: 90
+Forecast horizon: 7
+Train/Val/Test batches: 322 / 63 / 40
+Device: cpu
+
+ProbSparse Informer (test, °C):
+  RMSE day 1: 0.6423
+  RMSE day 2: 0.6478
+  RMSE day 3: 0.6540
+  RMSE day 4: 0.6558
+  RMSE day 5: 0.6568
+  RMSE day 6: 0.6592
+  RMSE day 7: 0.6596
+  RMSE mean:  0.6536
+  MAE  mean:  0.5120
+
+Persistence (test, °C):
+  RMSE day 1: 0.3253
+  RMSE day 2: 0.4916
+  RMSE day 3: 0.5803
+  RMSE day 4: 0.6293
+  RMSE day 5: 0.6602
+  RMSE day 6: 0.6813
+  RMSE day 7: 0.6967
+  RMSE mean:  0.5807
+  MAE  mean:  0.4448
+
+RNN (test, °C):
+  RMSE day 1: 0.5753
+  RMSE day 2: 0.5872
+  RMSE day 3: 0.5986
+  RMSE day 4: 0.6086
+  RMSE day 5: 0.6163
+  RMSE day 6: 0.6229
+  RMSE day 7: 0.6295
+  RMSE mean:  0.6055
+  MAE  mean:  0.4779
+
+Skill vs persistence:
+  RMSE skill: -0.1257
+  MAE  skill: -0.1511
+
+Skill vs RNN:
+  RMSE skill: -0.0796
+  MAE  skill: -0.0712
