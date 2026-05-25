@@ -1,5 +1,4 @@
 # Based on: https://arxiv.org/pdf/2012.07436
-# TODO: Add file head comment. 
 
 import torch
 import torch.nn as nn
