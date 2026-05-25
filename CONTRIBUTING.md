@@ -49,8 +49,7 @@ The Zarr store is built once by Ayush's pipeline (on a separate branch) and cont
 ### `src/models/`
 
 - **`lstm.py`** — `StackedSpatialLSTM`. Reference model.
-- **`informer.py`** - `ProbSparseInformer`. A model based on "Informer: Beyond Efficient Transformer for Long Sequence
-Time-Series Forecasting" by Zhou et al. (2020). Available at: https://arxiv.org/pdf/2012.07436
+- **`informer.py`** - `ProbSparseInformer`. A model based on "Informer: Beyond Efficient Transformer for Long Sequence Time-Series Forecasting" by Zhou et al. (2020). Available at: https://arxiv.org/pdf/2012.07436
 
 This is where your new model goes. One file per model. Add whatever you guys like, such as `convlstm.py`, `transformer.py`, `cnn_lstm.py`, etc.
 
