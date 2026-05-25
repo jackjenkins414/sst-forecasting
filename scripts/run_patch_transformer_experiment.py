@@ -1,0 +1,185 @@
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.append(str(PROJECT_ROOT))
+
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import zarr
+
+from src.data.dataloaders import create_dataloaders
+
+from src.models.patch_transformer import SstPatchTransformer
+
+from src.training.train import train_model
+from src.training.evaluate import predict
+
+from src.baselines.persistence import persistence_forecast
+from src.utils.metrics import rmse, rmse_per_step, mae, skill_score
+
+
+# Configuration; same as prev files, with minor changes 
+
+ZARR_PATH = PROJECT_ROOT / "data/processed/oisst_coralsea.zarr"
+
+CONTEXT_LEN = 90
+HORIZON = 7
+BATCH_SIZE = 16
+
+PATCH_HEIGHT = 9
+PATCH_WIDTH = 11
+
+D_MODEL = 128
+N_BLOCKS = 2
+N_HEADS = 4
+D_FF = 512
+DROPOUT = 0.1
+
+NUM_EPOCHS = 8
+LEARNING_RATE = 1e-3
+WEIGHT_DECAY = 1e-4
+GRAD_CLIP = 1.0
+
+RANDOM_SEED = 42
+
+
+def main():
+    # Seeds
+    np.random.seed(RANDOM_SEED)
+    torch.manual_seed(RANDOM_SEED)
+
+    # Load metadata from Zarr
+    root = zarr.open_group(str(ZARR_PATH), mode="r")
+    norm_mean = float(root.attrs["norm_mean"])
+    norm_std = float(root.attrs["norm_std"])
+    land_mask_np = np.array(root["land_mask"])
+    H, W = land_mask_np.shape
+
+    print(f"Grid: H={H} W={W} ocean cells={int(land_mask_np.sum())}")
+    print(f"Patches: {H // PATCH_HEIGHT} x {W // PATCH_WIDTH} = {(H // PATCH_HEIGHT) * (W // PATCH_WIDTH)}")
+    print(f"norm_mean={norm_mean:.5f} norm_std={norm_std:.5f}")
+
+    # Build dataloaders
+    train_loader, val_loader, test_loader = create_dataloaders(
+        zarr_path=ZARR_PATH,
+        context_len=CONTEXT_LEN,
+        horizon=HORIZON,
+        batch_size=BATCH_SIZE,
+    )
+
+    # Model
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    land_mask_torch = torch.from_numpy(land_mask_np).to(device)
+
+    model = SstPatchTransformer(
+        height=H,
+        width=W,
+        patch_height=PATCH_HEIGHT,
+        patch_width=PATCH_WIDTH,
+        seq_len=CONTEXT_LEN,
+        horizon=HORIZON,
+        d_model=D_MODEL,
+        n_blocks=N_BLOCKS,
+        n_heads=N_HEADS,
+        d_ff=D_FF,
+        dropout=DROPOUT,
+    ).to(device)
+
+    n_params = sum(p.numel() for p in model.parameters())
+    print(f"Model parameters: {n_params:,}")
+
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(
+        model.parameters(),
+        lr=LEARNING_RATE,
+        weight_decay=WEIGHT_DECAY,
+    )
+
+    # Train
+    train_losses, val_losses = train_model(
+        model=model,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        criterion=criterion,
+        optimizer=optimizer,
+        device=device,
+        num_epochs=NUM_EPOCHS,
+        land_mask=land_mask_torch,
+        grad_clip=GRAD_CLIP,
+    )
+
+    # Evaluate on test set
+    test_preds_norm, test_targets_norm = predict(
+        model=model,
+        data_loader=test_loader,
+        device=device,
+    )
+
+    # Denormalise to °C
+    test_preds_celsius = test_preds_norm * norm_std + norm_mean
+    test_targets_celsius = test_targets_norm * norm_std + norm_mean
+
+    patch_rmse_per_step = rmse_per_step(
+        test_preds_celsius, test_targets_celsius, land_mask=land_mask_np,
+    )
+    patch_rmse_mean = float(patch_rmse_per_step.mean())
+    patch_mae = mae(test_preds_celsius, test_targets_celsius, land_mask=land_mask_np)
+
+    # Persistence baseline
+    print("Evaluating persistence baseline...")
+    test_X_norm = []
+    test_y_norm = []
+    for batch_X, batch_y in test_loader:
+        test_X_norm.append(batch_X.numpy())
+        test_y_norm.append(batch_y.numpy())
+    test_X_norm = np.concatenate(test_X_norm, axis=0)
+    test_y_norm = np.concatenate(test_y_norm, axis=0)
+
+    persistence_preds_norm = persistence_forecast(test_X_norm, horizon=HORIZON)
+
+    persistence_preds_celsius = persistence_preds_norm * norm_std + norm_mean
+    persistence_targets_celsius = test_y_norm * norm_std + norm_mean
+
+    persistence_rmse_per_step = rmse_per_step(
+        persistence_preds_celsius, persistence_targets_celsius, land_mask=land_mask_np,
+    )
+    persistence_rmse_mean = float(persistence_rmse_per_step.mean())
+    persistence_mae = mae(
+        persistence_preds_celsius, persistence_targets_celsius, land_mask=land_mask_np,
+    )
+
+    # Skill scores
+    rmse_skill = skill_score(patch_rmse_mean, persistence_rmse_mean)
+    mae_skill = skill_score(patch_mae, persistence_mae)
+
+    # Summary
+    print("\nPatch Transformer Experiment Summary")
+    print("------------------------------------")
+    print(f"Context length: {CONTEXT_LEN}")
+    print(f"Forecast horizon: {HORIZON}")
+    print(f"Patch size: {PATCH_HEIGHT} x {PATCH_WIDTH}")
+    print(f"Train/Val/Test batches: {len(train_loader)} / {len(val_loader)} / {len(test_loader)}")
+    print(f"Device: {device}")
+
+    print("\nPatch Transformer (test, °C):")
+    for h, r in enumerate(patch_rmse_per_step, start=1):
+        print(f"  RMSE day {h}: {r:.4f}")
+    print(f"  RMSE mean:  {patch_rmse_mean:.4f}")
+    print(f"  MAE  mean:  {patch_mae:.4f}")
+
+    print("\nPersistence (test, °C):")
+    for h, r in enumerate(persistence_rmse_per_step, start=1):
+        print(f"  RMSE day {h}: {r:.4f}")
+    print(f"  RMSE mean:  {persistence_rmse_mean:.4f}")
+    print(f"  MAE  mean:  {persistence_mae:.4f}")
+
+    print("\nSkill vs persistence:")
+    print(f"  RMSE skill: {rmse_skill:.4f}")
+    print(f"  MAE  skill: {mae_skill:.4f}")
+
+
+if __name__ == "__main__":
+    main()
