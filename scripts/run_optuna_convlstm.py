@@ -50,14 +50,58 @@ DB_PATH     = PROJECT_ROOT / "experiments/optuna_convlstm.db"
 
 CONTEXT_LEN         = 90
 HORIZON             = 7
-BATCH_SIZE          = 4   # ConvLSTM keeps full H×W hidden states across all 90
-                          # timesteps; BPTT retains the whole graph, so even small
-                          # configs hit ~6-7 GB. B=8 OOMs on 12 GB. Large configs
-                          # (hidden=96, layers=4) OOM even at B=4 — the OOM guard
-                          # below prunes those so the wide search space is safe.
+BATCH_SIZE_DEFAULT  = 4   # preferred batch size; reduced to 2 automatically for
+                          # memory-heavy configs (see _batch_for_config)
+BATCH_SIZE_SMALL    = 2
 NUM_EPOCHS          = 50
 EARLY_STOP_PATIENCE = 5
 RANDOM_SEED         = 42
+
+# ---------------------------------------------------------------------------
+# VRAM budget / estimation
+#
+# Dominant cost: full BPTT over CONTEXT_LEN timesteps.
+# Per (timestep, layer) PyTorch saves 7 tensors of shape (B, hidden, H, W)
+# for backward: h_t, c_t, sigmoid(i), sigmoid(f), tanh(g), sigmoid(o), tanh(c_t).
+#
+# activation_bytes = CONTEXT_LEN * n_layers * 7 * hidden * B * H * W * 4
+#
+# Verified against known outcomes:
+#   hidden=32, n_layers=2, B=4  → ~7.8 GB  (completed ✓)
+#   hidden=64, n_layers=3, B=4  → ~20.5 GB (crashed   ✗)
+# ---------------------------------------------------------------------------
+
+_GRID_H          = 81
+_GRID_W          = 121
+_SAVED_PER_STEP  = 7     # float32 (B, hidden, H, W) tensors kept per (t, layer)
+_OVERHEAD_GB     = 1.5   # weights + Adam states + input batch + CUDA overhead
+VRAM_BUDGET_GB   = 9.0   # safe ceiling on 12 GB card; 3 GB headroom for OS/drivers
+
+
+def _estimate_peak_gb(hidden_dim: int, n_layers: int, batch_size: int) -> float:
+    """Estimated peak VRAM in GB for a given ConvLSTM config."""
+    activation = (
+        CONTEXT_LEN * n_layers * _SAVED_PER_STEP
+        * hidden_dim * batch_size
+        * _GRID_H * _GRID_W
+        * 4  # bytes per float32
+    )
+    return activation / 1e9 + _OVERHEAD_GB
+
+
+def _batch_for_config(hidden_dim: int, n_layers: int) -> int | None:
+    """Return the largest safe batch size, or None if the config must be pruned.
+
+    Decision table (9 GB budget, 12 GB card):
+      B=4 OK  if estimated peak <= 9.0 GB  (n_layers * hidden <= ~75)
+      B=2 OK  if estimated peak <= 9.0 GB  (n_layers * hidden <= ~152)
+      PRUNE   if even B=2 exceeds budget
+    """
+    if _estimate_peak_gb(hidden_dim, n_layers, BATCH_SIZE_DEFAULT) <= VRAM_BUDGET_GB:
+        return BATCH_SIZE_DEFAULT
+    if _estimate_peak_gb(hidden_dim, n_layers, BATCH_SIZE_SMALL) <= VRAM_BUDGET_GB:
+        return BATCH_SIZE_SMALL
+    return None
 
 # ---------------------------------------------------------------------------
 # Search space
@@ -148,7 +192,7 @@ def load_previous_runs(study: optuna.Study) -> int:
 # ---------------------------------------------------------------------------
 
 def make_objective(land_mask_np, norm_mean, norm_std,
-                   train_loader, val_loader, test_loader, device):
+                   loaders_b4, loaders_b2, device):
 
     land_mask_torch = torch.from_numpy(land_mask_np).to(device)
     H, W = land_mask_np.shape
@@ -166,59 +210,74 @@ def make_objective(land_mask_np, norm_mean, norm_std,
         anomaly_alpha = trial.suggest_float("anomaly_alpha", SEARCH_SPACE["anomaly_alpha"].low,
                                                               SEARCH_SPACE["anomaly_alpha"].high)
 
-        # Prune before training: ConvLSTM compute scales as hidden_dim² × n_layers.
-        # Configs above this threshold take 10–14+ hours on a 12 GB GPU.
-        if hidden_dim * n_layers > 128:
+        # Pick batch size based on estimated peak VRAM for this config.
+        # Falls back to B=2 for memory-heavy configs; prunes if too large even then.
+        batch_size = _batch_for_config(hidden_dim, n_layers)
+        if batch_size is None:
+            est = _estimate_peak_gb(hidden_dim, n_layers, BATCH_SIZE_SMALL)
+            print(f"  Trial {trial.number:03d} pruned: est {est:.1f} GB at B=2 "
+                  f"exceeds {VRAM_BUDGET_GB} GB budget "
+                  f"(hidden={hidden_dim}, layers={n_layers})")
             raise optuna.exceptions.TrialPruned()
+
+        train_loader, val_loader, test_loader = (
+            loaders_b4 if batch_size == BATCH_SIZE_DEFAULT else loaders_b2
+        )
+        if batch_size != BATCH_SIZE_DEFAULT:
+            est = _estimate_peak_gb(hidden_dim, n_layers, batch_size)
+            print(f"  Trial {trial.number:03d} using B={batch_size} "
+                  f"(est {est:.1f} GB, hidden={hidden_dim}, layers={n_layers})")
 
         hidden_channels = [hidden_dim] * n_layers
 
         run_dir = RESULTS_DIR / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_{os.getpid()}"
         run_dir.mkdir(parents=True, exist_ok=True)
 
-        config = {
-            "model_type":          "convlstm",
-            "context_len":         CONTEXT_LEN,
-            "horizon":             HORIZON,
-            "batch_size":          BATCH_SIZE,
-            "hidden_dim":          hidden_dim,
-            "n_layers":            n_layers,
-            "hidden_channels":     hidden_channels,
-            "kernel_size":         kernel_size,
-            "dropout":             dropout,
-            "anomaly_alpha":       anomaly_alpha,
-            "num_epochs":          NUM_EPOCHS,
-            "early_stop_patience": EARLY_STOP_PATIENCE,
-            "learning_rate":       lr,
-            "weight_decay":        1e-4,
-            "grad_clip":           1.0,
-            "lr_factor":           lr_factor,
-            "lr_patience":         5,
-            "random_seed":         RANDOM_SEED,
-            "optuna_trial":        trial.number,
-        }
-        with open(run_dir / "config.json", "w") as f:
-            json.dump(config, f, indent=2)
-
-        model = SpatialConvLSTM(
-            H=H, W=W, context_len=CONTEXT_LEN, horizon=HORIZON,
-            hidden_channels=hidden_channels,
-            kernel_size=kernel_size,
-            dropout=dropout,
-        ).to(device)
-
-        optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
-        criterion = AnomalyWeightedMSE(alpha=anomaly_alpha)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=lr_factor, patience=5,
-            threshold=1e-3, min_lr=1e-5, cooldown=2,
-        )
-
-        def epoch_callback(epoch, val_loss):
-            trial.report(val_loss, epoch)
-            return trial.should_prune()
-
+        model     = None
+        optimizer = None
         try:
+            config = {
+                "model_type":          "convlstm",
+                "context_len":         CONTEXT_LEN,
+                "horizon":             HORIZON,
+                "batch_size":          batch_size,
+                "hidden_dim":          hidden_dim,
+                "n_layers":            n_layers,
+                "hidden_channels":     hidden_channels,
+                "kernel_size":         kernel_size,
+                "dropout":             dropout,
+                "anomaly_alpha":       anomaly_alpha,
+                "num_epochs":          NUM_EPOCHS,
+                "early_stop_patience": EARLY_STOP_PATIENCE,
+                "learning_rate":       lr,
+                "weight_decay":        1e-4,
+                "grad_clip":           1.0,
+                "lr_factor":           lr_factor,
+                "lr_patience":         5,
+                "random_seed":         RANDOM_SEED,
+                "optuna_trial":        trial.number,
+            }
+            with open(run_dir / "config.json", "w") as f:
+                json.dump(config, f, indent=2)
+
+            model = SpatialConvLSTM(
+                H=H, W=W, context_len=CONTEXT_LEN, horizon=HORIZON,
+                hidden_channels=hidden_channels,
+                kernel_size=kernel_size,
+                dropout=dropout,
+            ).to(device)
+
+            optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+            criterion = AnomalyWeightedMSE(alpha=anomaly_alpha)
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer, mode="min", factor=lr_factor, patience=5,
+                threshold=1e-3, min_lr=1e-5, cooldown=2,
+            )
+
+            def epoch_callback(epoch, val_loss):
+                trial.report(val_loss, epoch)
+                return trial.should_prune()
+
             train_losses, val_losses = train_model(
                 model=model, train_loader=train_loader, val_loader=val_loader,
                 criterion=criterion, optimizer=optimizer, device=device,
@@ -226,38 +285,41 @@ def make_objective(land_mask_np, norm_mean, norm_std,
                 scheduler=scheduler, early_stop_patience=EARLY_STOP_PATIENCE,
                 epoch_callback=epoch_callback,
             )
+
+            test_preds_norm, test_targets_norm = predict(model, test_loader, device)
+            test_preds   = test_preds_norm   * norm_std + norm_mean
+            test_targets = test_targets_norm * norm_std + norm_mean
+            rmse_steps   = rmse_per_step(test_preds, test_targets, land_mask=land_mask_np)
+            mean_rmse    = float(rmse_steps.mean())
+
+            metrics = {
+                "epochs_trained": len(train_losses),
+                "best_val_loss":  float(min(val_losses)),
+                "mean_rmse":      {"model": mean_rmse},
+                "rmse_per_step":  {f"day_{i+1}": float(r) for i, r in enumerate(rmse_steps)},
+            }
+            with open(run_dir / "metrics.json", "w") as f:
+                json.dump(metrics, f, indent=2)
+
+            print(f"  Trial {trial.number:03d} | mean RMSE {mean_rmse:.4f} | "
+                  f"{len(train_losses)} epochs | {run_dir.name}")
+            return mean_rmse
+
         except optuna.exceptions.TrialPruned:
             raise
         except RuntimeError as e:
-            # CUDA OOM can surface as OutOfMemoryError or a plain RuntimeError.
-            # Config too large for 12 GB VRAM — free memory and prune so the
-            # study keeps exploring the feasible part of the search space.
             if "out of memory" not in str(e).lower():
                 raise
-            del model, optimizer
-            torch.cuda.empty_cache()
-            print(f"  Trial {trial.number:03d} OOM (hidden={hidden_dim}, "
-                  f"layers={n_layers}, k={kernel_size}) — pruned")
+            print(f"  Trial {trial.number:03d} unexpected OOM at B={batch_size} "
+                  f"(hidden={hidden_dim}, layers={n_layers}) — pruned")
             raise optuna.exceptions.TrialPruned()
-
-        test_preds_norm, test_targets_norm = predict(model, test_loader, device)
-        test_preds   = test_preds_norm   * norm_std + norm_mean
-        test_targets = test_targets_norm * norm_std + norm_mean
-        rmse_steps   = rmse_per_step(test_preds, test_targets, land_mask=land_mask_np)
-        mean_rmse    = float(rmse_steps.mean())
-
-        metrics = {
-            "epochs_trained": len(train_losses),
-            "best_val_loss":  float(min(val_losses)),
-            "mean_rmse":      {"model": mean_rmse},
-            "rmse_per_step":  {f"day_{i+1}": float(r) for i, r in enumerate(rmse_steps)},
-        }
-        with open(run_dir / "metrics.json", "w") as f:
-            json.dump(metrics, f, indent=2)
-
-        print(f"  Trial {trial.number:03d} | mean RMSE {mean_rmse:.4f} | "
-              f"{len(train_losses)} epochs | {run_dir.name}")
-        return mean_rmse
+        finally:
+            if model is not None:
+                del model
+            if optimizer is not None:
+                del optimizer
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
     return objective
 
@@ -272,6 +334,18 @@ def _dist_kwargs(dist) -> dict:
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
+def _fix_zombie_trials(study: optuna.Study) -> int:
+    """Mark any RUNNING trials left by a previous crash as FAIL."""
+    zombies = [t for t in study.trials if t.state.name == "RUNNING"]
+    if not zombies:
+        return 0
+    storage = study._storage
+    for t in zombies:
+        storage.set_trial_state_values(t._trial_id, state=optuna.trial.TrialState.FAIL)
+        print(f"  Marked zombie trial {t.number} (params={t.params}) as FAIL")
+    return len(zombies)
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -289,6 +363,10 @@ def main():
         sampler=optuna.samplers.TPESampler(seed=RANDOM_SEED),
         pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=5),
     )
+
+    n_zombies = _fix_zombie_trials(study)
+    if n_zombies:
+        print(f"Fixed {n_zombies} zombie trial(s) left by a previous crash")
 
     if not any(t.params == SEED_CONFIG for t in study.trials):
         study.enqueue_trial(SEED_CONFIG)
@@ -311,17 +389,22 @@ def main():
     np.random.seed(RANDOM_SEED)
     torch.manual_seed(RANDOM_SEED)
 
-    train_loader, val_loader, test_loader = create_dataloaders(
+    loaders_b4 = create_dataloaders(
         zarr_path=ZARR_PATH, context_len=CONTEXT_LEN,
-        horizon=HORIZON, batch_size=BATCH_SIZE,
+        horizon=HORIZON, batch_size=BATCH_SIZE_DEFAULT,
+    )
+    loaders_b2 = create_dataloaders(
+        zarr_path=ZARR_PATH, context_len=CONTEXT_LEN,
+        horizon=HORIZON, batch_size=BATCH_SIZE_SMALL,
     )
 
     objective = make_objective(
         land_mask_np, norm_mean, norm_std,
-        train_loader, val_loader, test_loader, device,
+        loaders_b4, loaders_b2, device,
     )
 
-    print(f"Starting {args.n_trials} new trials on {device}\n")
+    print(f"Starting {args.n_trials} new trials on {device}")
+    print(f"VRAM budget: {VRAM_BUDGET_GB} GB  (B=4 up to ~{VRAM_BUDGET_GB:.0f} GB est, B=2 for larger)\n")
     study.optimize(objective, n_trials=args.n_trials, show_progress_bar=False)
     _print_summary(study)
     save_study_plots(study, model_name="convlstm")
