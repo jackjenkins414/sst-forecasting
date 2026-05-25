@@ -32,7 +32,8 @@
       "PowerShell(& \"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" pr list --author \"@me\" --state open)",
       "PowerShell(& \"C:\\\\Program Files\\\\GitHub CLI\\\\gh.exe\" pr close 11 --comment \"Closing in favour of a clean re-PR from a fresh branch off main. The diff on this PR was inflated by files already on main from earlier merged PRs — the replacement branch isolates only the genuine contributions.\")",
       "Bash(dir experiments *)",
-      "Bash(grep -v \"^commit\\\\|^Author\\\\|^Date\\\\|^$\\\\|^    \")"
+      "Bash(grep -v \"^commit\\\\|^Author\\\\|^Date\\\\|^$\\\\|^    \")",
+      "Bash(nvidia-smi *)"
     ]
   }
 }
