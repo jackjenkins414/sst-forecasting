@@ -1,0 +1,21 @@
+{
+  "context_len": 90,
+  "horizon": 7,
+  "batch_size": 16,
+  "d_model": 128,
+  "n_heads": 8,
+  "n_layers": 4,
+  "d_ff": 512,
+  "t_s": 5,
+  "p_h": 3,
+  "p_w": 11,
+  "dropout": 0.1,
+  "num_epochs": 50,
+  "early_stop_patience": 7,
+  "learning_rate": 0.0005,
+  "weight_decay": 0.0001,
+  "grad_clip": 1.0,
+  "lr_factor": 0.75,
+  "lr_patience": 5,
+  "random_seed": 42
+}

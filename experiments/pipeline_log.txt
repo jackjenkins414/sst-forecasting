@@ -1,0 +1,301 @@
+Waiting for current trial to finish: run_20260511_003356
+Current trial done.
+WARNING: could not kill Optuna process: [WinError 2] The system cannot find the file specified
+
+>>> Transformer Optuna (12 trials, patience=5, max_epochs=15)
+Computing persistence baseline...
+Persistence mean RMSE: 0.5807
+Starting 12 transformer trials on cuda
+
+  Trial 000 | mean RMSE 0.7164 | 7 epochs | run_20260511_085517
+  Trial 001 | mean RMSE 0.6170 | 12 epochs | run_20260511_092611
+  Trial 002 | mean RMSE 0.7123 | 8 epochs | run_20260511_095510
+  Trial 003 pruned at epoch 6
+  Trial 004 | mean RMSE 0.6167 | 15 epochs | run_20260511_102823
+  Trial 005 pruned at epoch 4
+  Trial 006 pruned at epoch 4
+  Trial 007 pruned at epoch 4
+  Trial 008 pruned at epoch 5
+  Trial 009 | mean RMSE 0.6056 | 8 epochs | run_20260511_114459
+  Trial 010 | mean RMSE 0.6302 | 7 epochs | run_20260511_120230
+  Trial 011 | mean RMSE 0.6148 | 9 epochs | run_20260511_121750
+
+--- Transformer HPO Summary ---
+  Completed trials : 7
+  Best mean RMSE   : 0.6056
+  Best params:
+    lr                   0.00013170256885255112
+    d_model              256
+    n_heads              8
+    n_layers             3
+    ffn_dim              256
+    dropout              0.05508382534881904
+    lr_factor            0.43236742809799134
+
+  Top 5 trials:
+  1. RMSE=0.6056  lr=0.00013170256885255112  d_model=256  n_heads=8  n_layers=3  ffn_dim=256  dropout=0.05508382534881904  lr_factor=0.43236742809799134
+  2. RMSE=0.6148  lr=0.00010260322790481243  d_model=256  n_heads=8  n_layers=3  ffn_dim=256  dropout=0.2100832488680164  lr_factor=0.4465759763509113
+  3. RMSE=0.6167  lr=0.00013244581340099356  d_model=128  n_heads=4  n_layers=4  ffn_dim=512  dropout=0.15934205586865594  lr_factor=0.4554563366576581
+  4. RMSE=0.6170  lr=0.00010485387725194633  d_model=128  n_heads=4  n_layers=2  ffn_dim=512  dropout=0.13638900372842316  lr_factor=0.4873687420594126
+  5. RMSE=0.6302  lr=0.0001612942337247425  d_model=256  n_heads=8  n_layers=3  ffn_dim=256  dropout=0.09394142329994884  lr_factor=0.6191100685621028
+
+>>> Generating comparison plots (mid)
+Loaded 41 runs
+Best: run_20260510_074907  RMSE=0.5005  params={'context_len': 90, 'horizon': 7, 'batch_size': 8, 'd_model': 128, 'n_heads': 8, 'n_layers': 5, 'd_ff': 512, 't_s': 5, 'p_h': 3, 'p_w': 11, 'dropout': 0.2121532416819933, 'num_epochs': 50, 'early_stop_patience': 5, 'learning_rate': 0.0006966448746688717, 'weight_decay': 0.0001, 'grad_clip': 1.0, 'lr_factor': 0.676232766649606, 'lr_patience': 5, 'random_seed': 42, 'optuna_trial': 19, 'anomaly_alpha': 0.08351769923479835}
+C:\Users\Khaled\sst-forecasting\scripts\compare_runs.py:144: UserWarning: This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+  plt.tight_layout()
+Saved: C:\Users\Khaled\sst-forecasting\experiments\comparison_params.png
+C:\Users\Khaled\sst-forecasting\scripts\compare_runs.py:200: UserWarning: This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+  plt.tight_layout()
+Saved: C:\Users\Khaled\sst-forecasting\experiments\comparison_curves.png
+
+Top 5 runs:
+  1. RMSE=0.5005  lr=6.97e-04  heads=8  layers=5  alpha=0.08  dropout=0.21  epochs=18
+  2. RMSE=0.5012  lr=7.02e-04  heads=8  layers=6  alpha=0.07  dropout=0.20  epochs=13
+  3. RMSE=0.5040  lr=9.38e-04  heads=8  layers=4  alpha=0.06  dropout=0.23  epochs=11
+  4. RMSE=0.5050  lr=5.48e-04  heads=8  layers=4  alpha=0.17  dropout=0.24  epochs=13
+  5. RMSE=0.5050  lr=2.04e-04  heads=8  layers=4  alpha=0.15  dropout=0.20  epochs=7
+Copied -> C:\Users\Khaled\OneDrive\Desktop\comparison_params_mid.png
+Copied -> C:\Users\Khaled\OneDrive\Desktop\comparison_curves_mid.png
+
+>>> Resuming Tubelet Optuna (15 more trials)
+Loaded 0 previous runs into study (13 total trials so far)
+Starting 15 new trials on cuda
+
+Epoch 01/50 | Train Loss: 0.969475 | Val Loss: 1.223169 *
+Epoch 02/50 | Train Loss: 0.936344 | Val Loss: 1.064462 *
+Epoch 03/50 | Train Loss: 0.689409 | Val Loss: 0.732406 *
+Epoch 04/50 | Train Loss: 0.602482 | Val Loss: 0.678211 *
+Epoch 05/50 | Train Loss: 0.590600 | Val Loss: 0.659564 *
+Epoch 06/50 | Train Loss: 0.586118 | Val Loss: 0.641734 *
+Epoch 07/50 | Train Loss: 0.580019 | Val Loss: 0.651199
+Trial pruned at epoch 7
+Restored best checkpoint (val loss 0.641734)
+  Trial 013 | mean RMSE 0.5081 | 7 epochs | run_20260511_123803
+Epoch 01/50 | Train Loss: 0.873305 | Val Loss: 1.046443 *
+Epoch 02/50 | Train Loss: 0.735103 | Val Loss: 0.659376 *
+Epoch 03/50 | Train Loss: 0.560076 | Val Loss: 0.648486 *
+Epoch 04/50 | Train Loss: 0.538090 | Val Loss: 0.594700 *
+Epoch 05/50 | Train Loss: 0.534983 | Val Loss: 0.636552
+Epoch 06/50 | Train Loss: 0.531364 | Val Loss: 0.598191
+Epoch 07/50 | Train Loss: 0.528564 | Val Loss: 0.602564
+Epoch 08/50 | Train Loss: 0.529528 | Val Loss: 0.582070 *
+Epoch 09/50 | Train Loss: 0.524898 | Val Loss: 0.575753 *
+Epoch 10/50 | Train Loss: 0.519559 | Val Loss: 0.584577
+Epoch 11/50 | Train Loss: 0.518251 | Val Loss: 0.573732 *
+Epoch 12/50 | Train Loss: 0.517911 | Val Loss: 0.582919
+Epoch 13/50 | Train Loss: 0.517007 | Val Loss: 0.581521
+Epoch 14/50 | Train Loss: 0.516967 | Val Loss: 0.581670
+Epoch 15/50 | Train Loss: 0.515548 | Val Loss: 0.595868
+Epoch 16/50 | Train Loss: 0.514433 | Val Loss: 0.579552
+Early stopping at epoch 16 (no improvement for 5 epochs)
+Restored best checkpoint (val loss 0.573732)
+  Trial 014 | mean RMSE 0.5070 | 16 epochs | run_20260511_131153
+Epoch 01/50 | Train Loss: 0.672882 | Val Loss: 0.677416 *
+Epoch 02/50 | Train Loss: 0.590705 | Val Loss: 0.650806 *
+Epoch 03/50 | Train Loss: 0.576754 | Val Loss: 0.647451 *
+Epoch 04/50 | Train Loss: 0.571216 | Val Loss: 0.662301
+Epoch 05/50 | Train Loss: 0.566745 | Val Loss: 0.629114 *
+Epoch 06/50 | Train Loss: 0.562549 | Val Loss: 0.638689
+Epoch 07/50 | Train Loss: 0.560858 | Val Loss: 0.682751
+Trial pruned at epoch 7
+Restored best checkpoint (val loss 0.629114)
+  Trial 015 | mean RMSE 0.5051 | 7 epochs | run_20260511_142112
+Epoch 01/50 | Train Loss: 0.699385 | Val Loss: 0.668558 *
+Epoch 02/50 | Train Loss: 0.587440 | Val Loss: 0.646915 *
+Epoch 03/50 | Train Loss: 0.569942 | Val Loss: 0.686037
+Epoch 04/50 | Train Loss: 0.561377 | Val Loss: 0.626330 *
+Epoch 05/50 | Train Loss: 0.559062 | Val Loss: 0.621615 *
+Epoch 06/50 | Train Loss: 0.556989 | Val Loss: 0.629182
+Epoch 07/50 | Train Loss: 0.552891 | Val Loss: 0.627007
+Epoch 08/50 | Train Loss: 0.550691 | Val Loss: 0.649100
+Trial pruned at epoch 8
+Restored best checkpoint (val loss 0.621615)
+  Trial 016 | mean RMSE 0.5104 | 8 epochs | run_20260511_182339
+Epoch 01/50 | Train Loss: 0.980465 | Val Loss: 1.232745 *
+Epoch 02/50 | Train Loss: 0.979845 | Val Loss: 1.160641 *
+Epoch 03/50 | Train Loss: 0.968000 | Val Loss: 1.129059 *
+Epoch 04/50 | Train Loss: 0.899857 | Val Loss: 0.920870 *
+Epoch 05/50 | Train Loss: 0.743918 | Val Loss: 0.824736 *
+Epoch 06/50 | Train Loss: 0.711501 | Val Loss: 0.818749 *
+Trial pruned at epoch 6
+Restored best checkpoint (val loss 0.818749)
+  Trial 017 | mean RMSE 0.5747 | 6 epochs | run_20260511_185827
+Epoch 01/50 | Train Loss: 1.070842 | Val Loss: 1.321002 *
+Epoch 02/50 | Train Loss: 0.993914 | Val Loss: 1.132789 *
+Epoch 03/50 | Train Loss: 0.759077 | Val Loss: 0.837044 *
+Epoch 04/50 | Train Loss: 0.667650 | Val Loss: 0.760129 *
+Epoch 05/50 | Train Loss: 0.643534 | Val Loss: 0.720852 *
+Epoch 06/50 | Train Loss: 0.639496 | Val Loss: 0.709155 *
+Trial pruned at epoch 6
+Restored best checkpoint (val loss 0.709155)
+  Trial 018 | mean RMSE 0.5174 | 6 epochs | run_20260511_192422
+Epoch 01/50 | Train Loss: 0.593610 | Val Loss: 0.612880 *
+Epoch 02/50 | Train Loss: 0.537907 | Val Loss: 0.606596 *
+Epoch 03/50 | Train Loss: 0.529704 | Val Loss: 0.583779 *
+Epoch 04/50 | Train Loss: 0.525019 | Val Loss: 0.628071
+Epoch 05/50 | Train Loss: 0.519764 | Val Loss: 0.639858
+Epoch 06/50 | Train Loss: 0.515784 | Val Loss: 0.609790
+Epoch 07/50 | Train Loss: 0.515183 | Val Loss: 0.623945
+Epoch 08/50 | Train Loss: 0.510686 | Val Loss: 0.594838
+Early stopping at epoch 8 (no improvement for 5 epochs)
+Restored best checkpoint (val loss 0.583779)
+  Trial 019 | mean RMSE 0.5052 | 8 epochs | run_20260511_195320
+Epoch 01/50 | Train Loss: 0.804573 | Val Loss: 1.033988 *
+Epoch 02/50 | Train Loss: 0.597203 | Val Loss: 0.618976 *
+Epoch 03/50 | Train Loss: 0.527615 | Val Loss: 0.578881 *
+Epoch 04/50 | Train Loss: 0.514295 | Val Loss: 0.562739 *
+Epoch 05/50 | Train Loss: 0.512447 | Val Loss: 0.564526
+Epoch 06/50 | Train Loss: 0.511772 | Val Loss: 0.555267 *
+Epoch 07/50 | Train Loss: 0.508966 | Val Loss: 0.581086
+Epoch 08/50 | Train Loss: 0.507984 | Val Loss: 0.560872
+Epoch 09/50 | Train Loss: 0.507591 | Val Loss: 0.554351 *
+Epoch 10/50 | Train Loss: 0.503436 | Val Loss: 0.553097 *
+Epoch 11/50 | Train Loss: 0.500464 | Val Loss: 0.547860 *
+Epoch 12/50 | Train Loss: 0.498446 | Val Loss: 0.579605
+Epoch 13/50 | Train Loss: 0.497596 | Val Loss: 0.553695
+Epoch 14/50 | Train Loss: 0.497967 | Val Loss: 0.616123
+Epoch 15/50 | Train Loss: 0.497833 | Val Loss: 0.552514
+Epoch 16/50 | Train Loss: 0.496250 | Val Loss: 0.544899 *
+Epoch 17/50 | Train Loss: 0.495139 | Val Loss: 0.580637
+Epoch 18/50 | Train Loss: 0.496014 | Val Loss: 0.552222
+Epoch 19/50 | Train Loss: 0.495015 | Val Loss: 0.558362
+Epoch 20/50 | Train Loss: 0.495367 | Val Loss: 0.554591
+Epoch 21/50 | Train Loss: 0.493919 | Val Loss: 0.543193 *
+Epoch 22/50 | Train Loss: 0.494855 | Val Loss: 0.570634
+Epoch 23/50 | Train Loss: 0.493071 | Val Loss: 0.572505
+Epoch 24/50 | Train Loss: 0.493616 | Val Loss: 0.545566
+Epoch 25/50 | Train Loss: 0.493319 | Val Loss: 0.550355
+Epoch 26/50 | Train Loss: 0.493019 | Val Loss: 0.574930
+Early stopping at epoch 26 (no improvement for 5 epochs)
+Restored best checkpoint (val loss 0.543193)
+  Trial 020 | mean RMSE 0.5055 | 26 epochs | run_20260512_000457
+Epoch 01/50 | Train Loss: 0.639976 | Val Loss: 0.645299 *
+Epoch 02/50 | Train Loss: 0.564255 | Val Loss: 0.630888 *
+Epoch 03/50 | Train Loss: 0.553824 | Val Loss: 0.645164
+Epoch 04/50 | Train Loss: 0.548127 | Val Loss: 0.623594 *
+Epoch 05/50 | Train Loss: 0.544990 | Val Loss: 0.609825 *
+Epoch 06/50 | Train Loss: 0.540788 | Val Loss: 0.605713 *
+Epoch 07/50 | Train Loss: 0.538879 | Val Loss: 0.624152
+Epoch 08/50 | Train Loss: 0.533455 | Val Loss: 0.653252
+Epoch 09/50 | Train Loss: 0.530861 | Val Loss: 0.630987
+Trial pruned at epoch 9
+Restored best checkpoint (val loss 0.605713)
+  Trial 021 | mean RMSE 0.5031 | 9 epochs | run_20260512_015930
+Epoch 01/50 | Train Loss: 0.665960 | Val Loss: 0.648897 *
+Epoch 02/50 | Train Loss: 0.567810 | Val Loss: 0.627540 *
+Epoch 03/50 | Train Loss: 0.558635 | Val Loss: 0.612760 *
+Epoch 04/50 | Train Loss: 0.549698 | Val Loss: 0.607441 *
+Epoch 05/50 | Train Loss: 0.545486 | Val Loss: 0.644402
+Epoch 06/50 | Train Loss: 0.542928 | Val Loss: 0.599388 *
+Epoch 07/50 | Train Loss: 0.539370 | Val Loss: 0.600810
+Epoch 08/50 | Train Loss: 0.537808 | Val Loss: 0.599922
+Epoch 09/50 | Train Loss: 0.535181 | Val Loss: 0.602479
+Epoch 10/50 | Train Loss: 0.533892 | Val Loss: 0.600544
+Epoch 11/50 | Train Loss: 0.530712 | Val Loss: 0.604412
+Early stopping at epoch 11 (no improvement for 5 epochs)
+Restored best checkpoint (val loss 0.599388)
+  Trial 022 | mean RMSE 0.5021 | 11 epochs | run_20260512_024333
+Epoch 01/50 | Train Loss: 0.663323 | Val Loss: 0.675264 *
+Epoch 02/50 | Train Loss: 0.581186 | Val Loss: 0.688669
+Epoch 03/50 | Train Loss: 0.566792 | Val Loss: 0.639086 *
+Epoch 04/50 | Train Loss: 0.560669 | Val Loss: 0.627516 *
+Epoch 05/50 | Train Loss: 0.555871 | Val Loss: 0.642031
+Epoch 06/50 | Train Loss: 0.552417 | Val Loss: 0.637271
+Epoch 07/50 | Train Loss: 0.548796 | Val Loss: 0.618504 *
+Epoch 08/50 | Train Loss: 0.545135 | Val Loss: 0.665731
+Trial pruned at epoch 8
+Restored best checkpoint (val loss 0.618504)
+  Trial 023 | mean RMSE 0.5089 | 8 epochs | run_20260512_033722
+Epoch 01/50 | Train Loss: 0.650767 | Val Loss: 0.672663 *
+Epoch 02/50 | Train Loss: 0.561736 | Val Loss: 0.622726 *
+Epoch 03/50 | Train Loss: 0.549974 | Val Loss: 0.607029 *
+Epoch 04/50 | Train Loss: 0.540687 | Val Loss: 0.606491 *
+Epoch 05/50 | Train Loss: 0.538942 | Val Loss: 0.614005
+Epoch 06/50 | Train Loss: 0.535451 | Val Loss: 0.608092
+Epoch 07/50 | Train Loss: 0.532894 | Val Loss: 0.601468 *
+Epoch 08/50 | Train Loss: 0.531278 | Val Loss: 0.609768
+Epoch 09/50 | Train Loss: 0.530800 | Val Loss: 0.609745
+Epoch 10/50 | Train Loss: 0.528027 | Val Loss: 0.613094
+Trial pruned at epoch 10
+Restored best checkpoint (val loss 0.601468)
+  Trial 024 | mean RMSE 0.5049 | 10 epochs | run_20260512_041639
+Epoch 01/50 | Train Loss: 0.592627 | Val Loss: 0.603637 *
+Epoch 02/50 | Train Loss: 0.532152 | Val Loss: 0.579494 *
+Epoch 03/50 | Train Loss: 0.522360 | Val Loss: 0.609664
+Epoch 04/50 | Train Loss: 0.515895 | Val Loss: 0.620491
+Epoch 05/50 | Train Loss: 0.513963 | Val Loss: 0.602735
+Epoch 06/50 | Train Loss: 0.510297 | Val Loss: 0.572333 *
+Epoch 07/50 | Train Loss: 0.508688 | Val Loss: 0.604900
+Epoch 08/50 | Train Loss: 0.505941 | Val Loss: 0.573253
+Epoch 09/50 | Train Loss: 0.502468 | Val Loss: 0.638494
+Epoch 10/50 | Train Loss: 0.500036 | Val Loss: 0.565678 *
+Epoch 11/50 | Train Loss: 0.498622 | Val Loss: 0.591347
+Epoch 12/50 | Train Loss: 0.495028 | Val Loss: 0.582569
+Epoch 13/50 | Train Loss: 0.492461 | Val Loss: 0.598182
+Epoch 14/50 | Train Loss: 0.489558 | Val Loss: 0.620440
+Epoch 15/50 | Train Loss: 0.487528 | Val Loss: 0.604745
+Early stopping at epoch 15 (no improvement for 5 epochs)
+Restored best checkpoint (val loss 0.565678)
+  Trial 025 | mean RMSE 0.5038 | 15 epochs | run_20260512_050546
+Epoch 01/50 | Train Loss: 0.676541 | Val Loss: 0.721126 *
+Epoch 02/50 | Train Loss: 0.595638 | Val Loss: 0.651173 *
+Epoch 03/50 | Train Loss: 0.582579 | Val Loss: 0.648849 *
+Epoch 04/50 | Train Loss: 0.574151 | Val Loss: 0.648989
+Epoch 05/50 | Train Loss: 0.573137 | Val Loss: 0.653259
+Epoch 06/50 | Train Loss: 0.568670 | Val Loss: 0.655295
+Trial pruned at epoch 6
+Restored best checkpoint (val loss 0.648849)
+  Trial 026 | mean RMSE 0.5070 | 6 epochs | run_20260512_061940
+Epoch 01/50 | Train Loss: 0.964703 | Val Loss: 1.249377 *
+Epoch 02/50 | Train Loss: 0.926811 | Val Loss: 1.071394 *
+Epoch 03/50 | Train Loss: 0.904580 | Val Loss: 0.957983 *
+Epoch 04/50 | Train Loss: 0.668695 | Val Loss: 0.924711 *
+Epoch 05/50 | Train Loss: 0.599101 | Val Loss: 0.758484 *
+Epoch 06/50 | Train Loss: 0.580563 | Val Loss: 0.748943 *
+Trial pruned at epoch 6
+Restored best checkpoint (val loss 0.748943)
+  Trial 027 | mean RMSE 0.5781 | 6 epochs | run_20260512_064634
+
+--- Optuna Study Summary ---
+  Completed trials : 27
+  Best mean RMSE   : 0.5005
+  Best params:
+    lr                        0.0006966448746688717
+    d_model                   128
+    n_heads                   8
+    n_layers                  5
+    lr_factor                 0.676232766649606
+    alpha                     0.08351769923479835
+    dropout                   0.2121532416819933
+
+  Top 5 trials:
+  1. RMSE=0.5005  lr=0.0006966448746688717  d_model=128  n_heads=8  n_layers=5  lr_factor=0.676232766649606  alpha=0.08351769923479835  dropout=0.2121532416819933
+  2. RMSE=0.5012  lr=0.0007020781199269848  d_model=128  n_heads=8  n_layers=6  lr_factor=0.6805767017119926  alpha=0.06707079167464089  dropout=0.20424198515733613
+  3. RMSE=0.5021  lr=0.0003511768253784866  d_model=128  n_heads=8  n_layers=6  lr_factor=0.6964349972481132  alpha=0.07603654527722215  dropout=0.2214585769104571
+  4. RMSE=0.5031  lr=0.00034675360618173224  d_model=128  n_heads=8  n_layers=6  lr_factor=0.697452255036145  alpha=0.07775383895727725  dropout=0.22332233150320824
+  5. RMSE=0.5038  lr=0.0005478846484255362  d_model=128  n_heads=8  n_layers=6  lr_factor=0.749045029423554  alpha=0.02814902309907595  dropout=0.24397762372880485
+
+>>> Generating final comparison plots
+Loaded 56 runs
+Best: run_20260510_074907  RMSE=0.5005  params={'context_len': 90, 'horizon': 7, 'batch_size': 8, 'd_model': 128, 'n_heads': 8, 'n_layers': 5, 'd_ff': 512, 't_s': 5, 'p_h': 3, 'p_w': 11, 'dropout': 0.2121532416819933, 'num_epochs': 50, 'early_stop_patience': 5, 'learning_rate': 0.0006966448746688717, 'weight_decay': 0.0001, 'grad_clip': 1.0, 'lr_factor': 0.676232766649606, 'lr_patience': 5, 'random_seed': 42, 'optuna_trial': 19, 'anomaly_alpha': 0.08351769923479835}
+C:\Users\Khaled\sst-forecasting\scripts\compare_runs.py:144: UserWarning: This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+  plt.tight_layout()
+Saved: C:\Users\Khaled\sst-forecasting\experiments\comparison_params.png
+C:\Users\Khaled\sst-forecasting\scripts\compare_runs.py:200: UserWarning: This figure includes Axes that are not compatible with tight_layout, so results might be incorrect.
+  plt.tight_layout()
+Saved: C:\Users\Khaled\sst-forecasting\experiments\comparison_curves.png
+
+Top 5 runs:
+  1. RMSE=0.5005  lr=6.97e-04  heads=8  layers=5  alpha=0.08  dropout=0.21  epochs=18
+  2. RMSE=0.5012  lr=7.02e-04  heads=8  layers=6  alpha=0.07  dropout=0.20  epochs=13
+  3. RMSE=0.5021  lr=3.51e-04  heads=8  layers=6  alpha=0.08  dropout=0.22  epochs=11
+  4. RMSE=0.5031  lr=3.47e-04  heads=8  layers=6  alpha=0.08  dropout=0.22  epochs=9
+  5. RMSE=0.5038  lr=5.48e-04  heads=8  layers=6  alpha=0.03  dropout=0.24  epochs=15
+Copied -> C:\Users\Khaled\OneDrive\Desktop\comparison_params_final.png
+Copied -> C:\Users\Khaled\OneDrive\Desktop\comparison_curves_final.png
+
+=== Pipeline complete! ===
+  Transformer HPO  -> experiments/optuna_transformer.db
+  Tubelet HPO      -> experiments/optuna_study.db
+  Final plots      -> OneDrive Desktop (*_final.png)

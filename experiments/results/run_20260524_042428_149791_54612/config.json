@@ -1,0 +1,20 @@
+{
+  "model_type": "lstm",
+  "context_len": 90,
+  "horizon": 7,
+  "batch_size": 16,
+  "hidden_size": 256,
+  "d_spatial": 32,
+  "num_layers": 2,
+  "dropout": 0.1702173399245881,
+  "anomaly_alpha": 0.038746160677035346,
+  "num_epochs": 50,
+  "early_stop_patience": 5,
+  "learning_rate": 0.0004316914461711582,
+  "weight_decay": 0.0001,
+  "grad_clip": 1.0,
+  "lr_factor": 0.5086611379061987,
+  "lr_patience": 5,
+  "random_seed": 42,
+  "optuna_trial": 14
+}

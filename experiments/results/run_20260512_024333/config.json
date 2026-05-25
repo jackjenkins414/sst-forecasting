@@ -1,0 +1,23 @@
+{
+  "context_len": 90,
+  "horizon": 7,
+  "batch_size": 8,
+  "d_model": 128,
+  "n_heads": 8,
+  "n_layers": 6,
+  "d_ff": 512,
+  "t_s": 5,
+  "p_h": 3,
+  "p_w": 11,
+  "dropout": 0.2214585769104571,
+  "num_epochs": 50,
+  "early_stop_patience": 5,
+  "learning_rate": 0.0003511768253784866,
+  "weight_decay": 0.0001,
+  "grad_clip": 1.0,
+  "lr_factor": 0.6964349972481132,
+  "lr_patience": 5,
+  "random_seed": 42,
+  "anomaly_alpha": 0.07603654527722215,
+  "optuna_trial": 22
+}
