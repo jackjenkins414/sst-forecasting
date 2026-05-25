@@ -37,6 +37,7 @@ MODEL_COLOURS = {
     "lstm":        "#f28e2b",
     "convlstm":    "#59a14f",
     "informer":    "#76b7b2",
+    "transformer": "#b07aa1",
 }
 
 # HP keys to display in the config panel (label, key)
@@ -58,6 +59,7 @@ HP_DISPLAY = [
     ("Kernel size",    "kernel_size"),
     ("Factor",         "factor"),
     ("Label len",      "label_len"),
+    ("FFN dim",        "ffn_dim"),
 ]
 
 

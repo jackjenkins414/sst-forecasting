@@ -43,7 +43,7 @@ BEST_DIR     = PROJECT_ROOT / "experiments"
 RANDOM_SEED  = 42
 EXAMPLE_IDX  = 100   # fixed test-window index used for heatmap across all models
 
-ALL_MODELS = ["tubelet", "lstm", "informer", "convlstm"]
+ALL_MODELS = ["tubelet", "lstm", "informer", "convlstm", "transformer"]
 
 
 # ---------------------------------------------------------------------------
@@ -59,6 +59,8 @@ def infer_model_type(config: dict) -> str:
         return "informer"
     if "hidden_dim" in config and "n_layers" in config:
         return "convlstm"
+    if "ffn_dim" in config and "n_heads" in config:
+        return "transformer"
     return "unknown"
 
 
@@ -113,11 +115,24 @@ def _build_convlstm(config, H, W):
     )
 
 
+def _build_transformer(config, H, W):
+    from src.sst_forecasting.models.transformer import SpatialFlatTransformer
+    return SpatialFlatTransformer(
+        H=H, W=W,
+        context_len=config["context_len"], horizon=config["horizon"],
+        d_model=config["d_model"], nhead=config["n_heads"],
+        num_encoder_layers=config["n_layers"],
+        dim_feedforward=config["ffn_dim"],
+        dropout=config["dropout"],
+    )
+
+
 MODEL_BUILDERS = {
-    "tubelet":  _build_tubelet,
-    "lstm":     _build_lstm,
-    "informer": _build_informer,
-    "convlstm": _build_convlstm,
+    "tubelet":     _build_tubelet,
+    "lstm":        _build_lstm,
+    "informer":    _build_informer,
+    "convlstm":    _build_convlstm,
+    "transformer": _build_transformer,
 }
 
 
@@ -132,7 +147,7 @@ def find_best_config(model_type: str) -> dict:
         if not cf.exists() or not mf.exists():
             continue
         config = json.load(open(cf))
-        mt = config.get("model_type") or infer_model_type(config)
+        mt = config.get("model_type") or config.get("model") or infer_model_type(config)
         if mt != model_type:
             continue
         if config.get("ablation"):
@@ -159,7 +174,7 @@ def find_best_ablation_alpha(model_type: str) -> float | None:
         if not cf.exists() or not mf.exists():
             continue
         config = json.load(open(cf))
-        mt = config.get("model_type") or infer_model_type(config)
+        mt = config.get("model_type") or config.get("model") or infer_model_type(config)
         if mt != model_type or not config.get("ablation"):
             continue
         metrics = json.load(open(mf))
@@ -255,6 +270,11 @@ def retrain_one(model_type: str, device: torch.device,
     save_dir.mkdir(parents=True, exist_ok=True)
 
     config = find_best_config(model_type)
+
+    # Transformer HPO ran with max_epochs=15; give the final retrain the full budget.
+    if model_type == "transformer" and config.get("num_epochs", 50) < 50:
+        config = dict(config)
+        config["num_epochs"] = 50
 
     # Override alpha with ablation result if available
     best_alpha = find_best_ablation_alpha(model_type)

@@ -166,6 +166,11 @@ def make_objective(land_mask_np, norm_mean, norm_std,
         anomaly_alpha = trial.suggest_float("anomaly_alpha", SEARCH_SPACE["anomaly_alpha"].low,
                                                               SEARCH_SPACE["anomaly_alpha"].high)
 
+        # Prune before training: ConvLSTM compute scales as hidden_dim² × n_layers.
+        # Configs above this threshold take 10–14+ hours on a 12 GB GPU.
+        if hidden_dim * n_layers > 128:
+            raise optuna.exceptions.TrialPruned()
+
         hidden_channels = [hidden_dim] * n_layers
 
         run_dir = RESULTS_DIR / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_{os.getpid()}"
