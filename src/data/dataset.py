@@ -13,8 +13,9 @@ class SstWindowDataset(Dataset):
     """
     PyTorch Dataset for grid-based SST sliding-window forecasting.
 
-    Reads normalised SST anomaly fields lazily from a Zarr store and
-    returns sliding-window samples for one chronological split.
+    Preloads the full normalised SST anomaly array from the Zarr store into
+    RAM on construction, then returns sliding-window samples for one
+    chronological split entirely from in-memory numpy arrays.
 
     Each item contains:
         x = sequence of past SST maps with a channel dimension
@@ -41,7 +42,9 @@ class SstWindowDataset(Dataset):
             raise FileNotFoundError(f"Zarr store not found: {zarr_path}")
 
         root = zarr.open_group(str(zarr_path), mode="r")
-        self._data = root["sst_norm"]
+        # Load the full array into RAM once so every __getitem__ call is a
+        # fast in-memory slice instead of a Lustre read.
+        self._data = np.asarray(root["sst_norm"][:], dtype=np.float32)
 
         # Convert stored int64 days-since-epoch to a DatetimeIndex
         time_days = root["time"][:]
