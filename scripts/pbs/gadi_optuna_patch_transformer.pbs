@@ -1,10 +1,10 @@
 #!/bin/bash
 #PBS -N sstf_optuna_patch_transformer
 #PBS -P dx61
-#PBS -q gpuhopper
-#PBS -l ncpus=12
+#PBS -q dgxa100
+#PBS -l ncpus=16
 #PBS -l ngpus=1
-#PBS -l mem=120GB
+#PBS -l mem=128GB
 #PBS -l jobfs=50GB
 #PBS -l walltime=24:00:00
 #PBS -l storage=scratch/um09
@@ -17,7 +17,7 @@ set -euo pipefail
 REPO="/scratch/um09/as1708/sst-forecasting"
 ZARR="$REPO/data/processed/oisst_coralsea.zarr"
 N_TRIALS="${N_TRIALS:-30}"
-BATCH="${BATCH:-32}"
+BATCH="${BATCH:-64}"
 
 cd "$REPO"
 
@@ -33,6 +33,7 @@ echo "[pbs] Trials: $N_TRIALS  Batch: $BATCH"
 numactl --localalloc python scripts/run_optuna_patch_transformer.py \
     --n_trials "$N_TRIALS" \
     --batch-size "$BATCH" \
+    --a100 \
     2>&1 | tee "$REPO/experiments/results/optuna_patch_transformer_${PBS_JOBID:-local}.log"
 
 echo "[pbs] done"

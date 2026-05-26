@@ -29,7 +29,7 @@ from datetime import datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.append(str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.optuna_plots import save_study_plots
 
@@ -48,6 +48,15 @@ from src.training.evaluate import predict
 from src.utils.metrics import rmse_per_step
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+# A100 optimisations: TF32 matmul/cuDNN (A100 natively supports TF32),
+# cuDNN autotuner (fixed input shapes means one-time cost).
+# Only active when --a100 flag is passed from the PBS script.
+def _apply_a100_opts():
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cudnn.benchmark = True
+    print("[optuna] A100 opts: TF32=True, cudnn.benchmark=True")
 
 # ---------------------------------------------------------------------------
 # Fixed — not part of the search
@@ -230,7 +239,12 @@ def main():
     parser.add_argument("--batch-size", type=int, default=32,
                         help="Per-GPU batch size (32-64 on an A100; use 8 on a 12GB card).")
     parser.add_argument("--show",       action="store_true")
+    parser.add_argument("--a100",       action="store_true",
+                        help="Enable A100-specific optimisations (TF32, cuDNN benchmark).")
     args = parser.parse_args()
+
+    if args.a100:
+        _apply_a100_opts()
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
