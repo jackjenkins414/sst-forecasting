@@ -1,0 +1,25 @@
+{
+  "model_type": "convlstm",
+  "context_len": 90,
+  "horizon": 7,
+  "batch_size": 4,
+  "hidden_dim": 16,
+  "n_layers": 3,
+  "hidden_channels": [
+    16,
+    16,
+    16
+  ],
+  "kernel_size": 3,
+  "dropout": 0.17331191853894456,
+  "anomaly_alpha": 0.1818640804157564,
+  "num_epochs": 50,
+  "early_stop_patience": 5,
+  "learning_rate": 0.001716044502975482,
+  "weight_decay": 0.0001,
+  "grad_clip": 1.0,
+  "lr_factor": 0.4137554084460874,
+  "lr_patience": 5,
+  "random_seed": 42,
+  "optuna_trial": 9
+}
