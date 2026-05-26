@@ -33,6 +33,9 @@ def train_model(
     best_state    = None
     epochs_no_improve = 0
 
+    _dev = device if isinstance(device, torch.device) else torch.device(device)
+    _use_amp = _dev.type == "cuda"
+
     for epoch in range(num_epochs):
         model.train()
         train_loss = 0.0
@@ -41,13 +44,13 @@ def train_model(
             batch_y = batch_y.to(device)
 
             optimizer.zero_grad()
-            preds = model(batch_X)
-
-            if land_mask is not None:
-                mask = land_mask.expand_as(preds)
-                loss = criterion(preds[mask], batch_y[mask])
-            else:
-                loss = criterion(preds, batch_y)
+            with torch.autocast(device_type=_dev.type, dtype=torch.bfloat16, enabled=_use_amp):
+                preds = model(batch_X)
+                if land_mask is not None:
+                    mask = land_mask.expand_as(preds)
+                    loss = criterion(preds[mask], batch_y[mask])
+                else:
+                    loss = criterion(preds, batch_y)
 
             loss.backward()
             if grad_clip is not None:
@@ -64,13 +67,13 @@ def train_model(
             for batch_X, batch_y in val_loader:
                 batch_X = batch_X.to(device)
                 batch_y = batch_y.to(device)
-                preds = model(batch_X)
-
-                if land_mask is not None:
-                    mask = land_mask.expand_as(preds)
-                    loss = criterion(preds[mask], batch_y[mask])
-                else:
-                    loss = criterion(preds, batch_y)
+                with torch.autocast(device_type=_dev.type, dtype=torch.bfloat16, enabled=_use_amp):
+                    preds = model(batch_X)
+                    if land_mask is not None:
+                        mask = land_mask.expand_as(preds)
+                        loss = criterion(preds[mask], batch_y[mask])
+                    else:
+                        loss = criterion(preds, batch_y)
 
                 val_loss += loss.item() * batch_X.size(0)
 
