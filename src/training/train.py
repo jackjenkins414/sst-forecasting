@@ -12,27 +12,26 @@ def train_model(
     num_epochs: int = 10,
     land_mask: torch.Tensor | None = None,
     grad_clip: float | None = None,
+    scheduler=None,
+    early_stop_patience: int | None = None,
+    epoch_callback=None,
 ):
     """
     Train a PyTorch model and evaluate validation loss after each epoch.
 
-    If land_mask is given, the loss is computed only over ocean cells.
-    The mask should be a boolean tensor of shape:
-        H x W
-    with True = ocean. It is broadcast over the batch and horizon axes.
+    Tracks the best val loss checkpoint and restores it before returning,
+    so the model always ends in its best-generalising state regardless of
+    how many epochs are run.
 
-    If grad_clip is given, gradients are clipped to that max norm
-    before each optimiser step.
-
-    Returns
-    -------
-    train_losses:
-        List of average training losses, one per epoch.
-    val_losses:
-        List of average validation losses, one per epoch.
+    If early_stop_patience is set, training stops when val loss has not
+    improved for that many consecutive epochs.
     """
     train_losses = []
     val_losses = []
+
+    best_val_loss = float("inf")
+    best_state    = None
+    epochs_no_improve = 0
 
     for epoch in range(num_epochs):
         model.train()
@@ -77,13 +76,39 @@ def train_model(
 
         val_loss = val_loss / len(val_loader.dataset)
 
+        if scheduler is not None:
+            scheduler.step(val_loss)
+
+        # Track best checkpoint
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_state    = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+            epochs_no_improve = 0
+            improved = " *"
+        else:
+            epochs_no_improve += 1
+            improved = ""
+
         train_losses.append(train_loss)
         val_losses.append(val_loss)
 
         print(
             f"Epoch {epoch + 1:02d}/{num_epochs} "
             f"| Train Loss: {train_loss:.6f} "
-            f"| Val Loss: {val_loss:.6f}"
+            f"| Val Loss: {val_loss:.6f}{improved}"
         )
+
+        if epoch_callback is not None and epoch_callback(epoch, val_loss):
+            print(f"Trial pruned at epoch {epoch + 1}")
+            break
+
+        if early_stop_patience is not None and epochs_no_improve >= early_stop_patience:
+            print(f"Early stopping at epoch {epoch + 1} (no improvement for {early_stop_patience} epochs)")
+            break
+
+    # Restore the best weights before returning
+    if best_state is not None:
+        model.load_state_dict({k: v.to(device) for k, v in best_state.items()})
+        print(f"Restored best checkpoint (val loss {best_val_loss:.6f})")
 
     return train_losses, val_losses
