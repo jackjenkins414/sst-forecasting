@@ -39,8 +39,13 @@ def create_dataloaders(
     val_dataset = SstWindowDataset(zarr_path, "val", context_len, horizon)
     test_dataset = SstWindowDataset(zarr_path, "test", context_len, horizon)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    # num_workers>0 overlaps Zarr decompression with GPU compute; pin_memory
+    # speeds host->GPU copies; persistent_workers avoids re-spawn each epoch
+    # (important on Windows spawn). Verified pickle-safe with SstWindowDataset.
+    loader_kwargs = dict(num_workers=4, pin_memory=True, persistent_workers=True)
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, **loader_kwargs)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, **loader_kwargs)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, **loader_kwargs)
 
     return train_loader, val_loader, test_loader
