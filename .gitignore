@@ -208,3 +208,9 @@ __marimo__/
 
 # Claude Code
 .claude/
+
+# Large regenerable datasets (raw: download_oisst.py, processed: build_zarr.py)
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
