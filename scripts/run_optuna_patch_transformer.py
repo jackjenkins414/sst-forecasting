@@ -53,10 +53,13 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 # cuDNN autotuner (fixed input shapes means one-time cost).
 # Only active when --a100 flag is passed from the PBS script.
 def _apply_a100_opts():
+    # BF16 autocast is enabled inside train_model() whenever device.type == "cuda"
+    # (see src/training/train.py). The flags below complement it:
+    torch.set_float32_matmul_precision("high")   # use TF32 for FP32 matmuls (2x faster on A100)
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
-    torch.backends.cudnn.benchmark = True
-    print("[optuna] A100 opts: TF32=True, cudnn.benchmark=True")
+    torch.backends.cudnn.benchmark = True        # auto-tune kernels for fixed input shapes
+    print("[optuna] A100 opts: BF16 autocast=ON, TF32=True, cudnn.benchmark=True")
 
 # ---------------------------------------------------------------------------
 # Fixed — not part of the search
