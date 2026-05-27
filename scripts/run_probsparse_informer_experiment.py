@@ -94,6 +94,7 @@ def main():
         d_ff=D_FF,
         dropout=DROPOUT,
         factor=FACTOR,
+        attention_type="probsparse"
     ).to(device)
     print("Device:", next(informer_model.parameters()).device)
 
