@@ -1148,7 +1148,7 @@ class ProbSparseInformer(nn.Module):
                     # Multi-head ProbSparse self-attention.
                     # NOTE: The above comments assume ProbSparse Attention.
                     SelfAttentionLayer(
-                        attention=self.select_attention(attention_type, 
+                        attention=self.select_attention(attention_type=attention_type, 
                                                         masked=False, 
                                                         factor=factor, 
                                                         dropout=dropout
@@ -1180,7 +1180,7 @@ class ProbSparseInformer(nn.Module):
                     # Causal masking prevents future leakage.
                     # NOTE: The above comments assume ProbSparse Attention.
                     SelfAttentionLayer(
-                        attention=self.select_attention(attention_type, 
+                        attention=self.select_attention(attention_type=attention_type, 
                                                         masked=True, 
                                                         factor=factor, 
                                                         dropout=dropout
