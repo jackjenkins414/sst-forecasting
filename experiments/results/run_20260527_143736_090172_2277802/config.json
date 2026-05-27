@@ -1,0 +1,23 @@
+{
+  "model_type": "patch_transformer",
+  "context_len": 90,
+  "horizon": 7,
+  "batch_size": 64,
+  "patch_height": 9,
+  "patch_width": 11,
+  "d_model": 64,
+  "n_blocks": 3,
+  "n_heads": 8,
+  "d_ff": 256,
+  "dropout": 0.03595961020010484,
+  "anomaly_alpha": 0.18858194078250384,
+  "num_epochs": 50,
+  "early_stop_patience": 5,
+  "learning_rate": 0.0011233209577485024,
+  "weight_decay": 0.0001,
+  "grad_clip": 1.0,
+  "lr_factor": 0.5350460685614512,
+  "lr_patience": 5,
+  "random_seed": 42,
+  "optuna_trial": 9
+}

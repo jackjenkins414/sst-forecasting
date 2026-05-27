@@ -1,0 +1,28 @@
+#!/bin/bash
+#PBS -N sstf_retrain_patch_best
+#PBS -P dx61
+#PBS -q dgxa100
+#PBS -l ncpus=16
+#PBS -l ngpus=1
+#PBS -l mem=64GB
+#PBS -l jobfs=20GB
+#PBS -l walltime=02:00:00
+#PBS -l storage=scratch/um09
+#PBS -j oe
+#PBS -o /scratch/um09/as1708/sst-forecasting/experiments/results/
+
+set -euo pipefail
+
+module load python3/3.11.7
+
+REPO="/scratch/um09/as1708/sst-forecasting"
+cd "$REPO"
+source .venv/bin/activate
+
+echo "[pbs] Python: $(python --version)"
+echo "[pbs] GPU: $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | head -1)"
+
+python scripts/retrain_best_patch_transformer.py --a100 \
+  2>&1 | tee experiments/results/retrain_best_patch_transformer_${PBS_JOBID}.log
+
+echo "[pbs] Done. Exit code: $?"
