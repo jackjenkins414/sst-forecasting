@@ -99,7 +99,7 @@ def main():
     print("Device:", next(informer_model.parameters()).device)
 
     informer_params = sum(p.numel() for p in informer_model.parameters())
-    print(f"ProbSparse Informer model parameters: {informer_params:,}")
+    print(f"Full Attention Informer model parameters: {informer_params:,}")
 
     criterion = nn.MSELoss()
     informer_optimiser = optim.Adam(
@@ -109,7 +109,7 @@ def main():
     )
 
     # ProbSparse Informer Train
-    print("\nTraining the ProbSparse Informer")
+    print("\nTraining the Full Attention Informer")
     informer_train_losses, informer_val_losses = train_model(
         model=informer_model,
         train_loader=train_loader,
@@ -123,7 +123,7 @@ def main():
     )
 
     # Evaluate ProbSparse Informer on test set
-    print("\nEvaluating the ProbSparse Informer")
+    print("\nEvaluating the Full Attention Informer")
     informer_preds_norm, informer_targets_norm = predict(
         model=informer_model,
         data_loader=test_loader,
@@ -231,14 +231,14 @@ def main():
     mae_rnn_skill = skill_score(informer_mae, rnn_mae)
 
     # Summary
-    print("\nProbSparse Attention Encoder-Decoder Informer Experiment Summary")
+    print("\nFull Attention Encoder-Decoder Informer Experiment Summary")
     print("-----------------------")
     print(f"Context length: {CONTEXT_LEN}")
     print(f"Forecast horizon: {HORIZON}")
     print(f"Train/Val/Test batches: {len(train_loader)} / {len(val_loader)} / {len(test_loader)}")
     print(f"Device: {device}")
 
-    print("\nProbSparse Informer (test, °C):")
+    print("\nFull Attention Informer (test, °C):")
     for h, r in enumerate(informer_rmse_per_step, start=1):
         print(f"  RMSE day {h}: {r:.4f}")
     print(f"  RMSE mean:  {informer_rmse_mean:.4f}")

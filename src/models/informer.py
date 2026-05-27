@@ -1205,7 +1205,7 @@ class ProbSparseInformer(nn.Module):
         self.proj_head = OutputProjectionHead(d_model, height, width)
 
     # HELPER FUNCTION - Define the attention mechanism. 
-    def select_attention(attention_type, masked, factor, dropout):
+    def select_attention(self, attention_type, masked, factor, dropout):
         """
         Selects the attention mechanism based on an input string. 
         """
