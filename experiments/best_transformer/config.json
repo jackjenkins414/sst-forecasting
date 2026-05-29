@@ -1,0 +1,21 @@
+{
+  "model": "transformer",
+  "context_len": 90,
+  "horizon": 7,
+  "batch_size": 8,
+  "d_model": 256,
+  "n_heads": 8,
+  "n_layers": 3,
+  "ffn_dim": 256,
+  "dropout": 0.05508382534881904,
+  "num_epochs": 50,
+  "early_stop_patience": 5,
+  "learning_rate": 0.00013170256885255112,
+  "lr_factor": 0.43236742809799134,
+  "lr_patience": 3,
+  "weight_decay": 0.0001,
+  "grad_clip": 1.0,
+  "anomaly_alpha": 0.0,
+  "random_seed": 42,
+  "optuna_trial": 9
+}

@@ -206,12 +206,16 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+# Claude Code
+.claude/
 
+# Large regenerable datasets (raw: download_oisst.py, processed: build_zarr.py)
 data/raw/*
-data/processed/*
 !data/raw/.gitkeep
+data/processed/*
 !data/processed/.gitkeep
 
-# macOS Finder metadata
-.DS_Store
-**/.DS_Store
+# Large retrain artifacts — regenerate via retrain_best.py (too big for git)
+experiments/best_*/*.npy
+experiments/best_*/*.pt
+experiments/*_log.txt

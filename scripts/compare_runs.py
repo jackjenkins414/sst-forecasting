@@ -44,8 +44,28 @@ MODEL_COLOURS = {
     "rnn":         "#e15759",  # red
     "transformer": "#b07aa1",  # purple
     "informer":    "#76b7b2",  # teal
+    "patch_transformer": "#edc948",  # yellow
     "unknown":     "#9c9c9c",  # grey
 }
+
+
+def _infer_model_type(config: dict) -> str:
+    """Identify model for runs predating the model_type key (old Tubelet/Transformer)."""
+    if config.get("model_type"):
+        return config["model_type"]
+    if "t_s" in config and "p_h" in config:
+        return "tubelet"
+    if "patch_height" in config and "patch_width" in config:
+        return "patch_transformer"
+    if "factor" in config and "label_len" in config:
+        return "informer"
+    if "hidden_dim" in config and "kernel_size" in config:
+        return "convlstm"
+    if "hidden_size" in config and "d_spatial" in config:
+        return "lstm"
+    if "ffn_dim" in config and "n_heads" in config:
+        return "transformer"
+    return "unknown"
 
 # Hyperparameters to scatter — common and model-specific.
 # Runs that don't have a key just get skipped in that subplot.
@@ -84,7 +104,7 @@ def load_runs() -> list[dict]:
 
         # Normalise key names across old and new run formats
         config.setdefault("learning_rate", config.pop("lr", config.get("learning_rate")))
-        model_type = config.get("model_type", "unknown")
+        model_type = _infer_model_type(config)
 
         rmse_steps = []
         pers_steps_raw = []
@@ -237,16 +257,123 @@ def plot_curves(runs: list[dict], save_path: Path, top_n: int = 5):
 # Main
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Final report — one clean line per model, from retrain_best.py artifacts
+# ---------------------------------------------------------------------------
+
+def plot_final_comparison(out_dir: Path):
+    """
+    Reads experiments/best_<model>/summary.json for each available model and
+    produces a single report-quality figure:
+      Left panel  — RMSE per forecast day, one line per architecture
+      Right panel — Skill per forecast day, one line per architecture
+      Bottom      — metrics summary table (RMSE, skill, BIC, params)
+    """
+    summaries = {}
+    for mt in MODEL_COLOURS:
+        p = PROJECT_ROOT / "experiments" / f"best_{mt}" / "summary.json"
+        if p.exists():
+            summaries[mt] = json.load(open(p))
+
+    if not summaries:
+        print("No best_<model>/ artifacts found — run retrain_best.py first.")
+        return
+
+    fig = plt.figure(figsize=(16, 10))
+    import matplotlib.gridspec as gridspec
+    gs  = gridspec.GridSpec(2, 2, figure=fig,
+                            height_ratios=[2, 1],
+                            hspace=0.45, wspace=0.30,
+                            left=0.07, right=0.97, top=0.93, bottom=0.05)
+
+    ax_rmse  = fig.add_subplot(gs[0, 0])
+    ax_skill = fig.add_subplot(gs[0, 1])
+    ax_tbl   = fig.add_subplot(gs[1, :])
+
+    fig.suptitle("Final Model Comparison — best HPO config per architecture",
+                 fontsize=13, fontweight="bold")
+
+    # Reference persistence from the first summary that has it
+    pers_plotted = False
+    table_rows   = []
+
+    for mt, s in sorted(summaries.items(), key=lambda x: x[1]["mean_rmse"]):
+        colour      = MODEL_COLOURS.get(mt, "#9c9c9c")
+        rmse_steps  = np.array(s["rmse_steps"])
+        pers_steps  = np.array(s["pers_rmse_steps"])
+        skill_steps = np.array(s["skill_steps"])
+
+        if not pers_plotted:
+            ax_rmse.plot(DAYS, pers_steps, "k--", linewidth=1.6,
+                         label="Persistence", zorder=5)
+            pers_plotted = True
+
+        ax_rmse.plot(DAYS, rmse_steps,  color=colour, linewidth=2.2,
+                     marker="o", markersize=5, label=mt)
+        ax_skill.plot(DAYS, skill_steps, color=colour, linewidth=2.2,
+                      marker="o", markersize=5, label=mt)
+
+        table_rows.append([
+            mt,
+            f"{s['mean_rmse']:.4f}",
+            f"{s['mean_skill']:.4f}",
+            f"{s['rmse_steps'][0]:.4f}",
+            f"{s['rmse_steps'][-1]:.4f}",
+            f"{s['bic']:.0f}",
+            f"{s['n_params']:,}",
+        ])
+
+    ax_rmse.set_xlabel("Forecast day"); ax_rmse.set_ylabel("RMSE (°C)")
+    ax_rmse.set_title("RMSE per forecast day")
+    ax_rmse.legend(fontsize=9); ax_rmse.grid(alpha=0.3)
+
+    ax_skill.axhline(0, color="black", linewidth=1.0, linestyle="--")
+    ax_skill.set_xlabel("Forecast day"); ax_skill.set_ylabel("Skill vs persistence")
+    ax_skill.set_title("Skill score per forecast day")
+    ax_skill.legend(fontsize=9); ax_skill.grid(alpha=0.3)
+
+    # Summary table
+    ax_tbl.axis("off")
+    col_labels = ["Model", "Mean RMSE", "Mean Skill",
+                  "Day-1 RMSE", "Day-7 RMSE", "BIC", "Params"]
+    tbl = ax_tbl.table(
+        cellText=table_rows, colLabels=col_labels,
+        cellLoc="center", loc="center",
+        bbox=[0.0, 0.0, 1.0, 1.0],
+    )
+    tbl.auto_set_font_size(False); tbl.set_fontsize(10)
+    for (r, _), cell in tbl.get_celld().items():
+        cell.set_edgecolor("#cccccc")
+        if r == 0:
+            cell.set_facecolor("#d0d8e8")
+            cell.set_text_props(fontweight="bold")
+        elif r % 2 == 0:
+            cell.set_facecolor("#f5f5f5")
+    ax_tbl.set_title("Metrics summary", fontsize=10, pad=12)
+
+    out = out_dir / "final_comparison.png"
+    plt.savefig(out, dpi=150, bbox_inches="tight")
+    print(f"Saved: {out}")
+    plt.close()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out_dir", type=str,
                         default=str(PROJECT_ROOT / "experiments"))
     parser.add_argument("--top_n",  type=int, default=5,
                         help="How many top runs to highlight in curve plots")
+    parser.add_argument("--final",  action="store_true",
+                        help="Generate report-quality final comparison from "
+                             "retrain_best.py artifacts (experiments/best_*/)")
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.final:
+        plot_final_comparison(out_dir)
+        return
 
     runs = load_runs()
     if not runs:
