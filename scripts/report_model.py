@@ -38,6 +38,7 @@ MODEL_COLOURS = {
     "convlstm":    "#59a14f",
     "informer":    "#76b7b2",
     "transformer": "#b07aa1",
+    "patch_transformer": "#edc948",
 }
 
 # HP keys to display in the config panel (label, key)

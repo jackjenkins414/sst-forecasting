@@ -43,7 +43,7 @@ BEST_DIR     = PROJECT_ROOT / "experiments"
 RANDOM_SEED  = 42
 EXAMPLE_IDX  = 100   # fixed test-window index used for heatmap across all models
 
-ALL_MODELS = ["tubelet", "lstm", "informer", "convlstm", "transformer"]
+ALL_MODELS = ["tubelet", "lstm", "informer", "convlstm", "transformer", "patch_transformer"]
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +51,8 @@ ALL_MODELS = ["tubelet", "lstm", "informer", "convlstm", "transformer"]
 # ---------------------------------------------------------------------------
 
 def infer_model_type(config: dict) -> str:
+    if "patch_height" in config and "n_blocks" in config:
+        return "patch_transformer"
     if "t_s" in config and "p_h" in config:
         return "tubelet"
     if "hidden_size" in config and "d_spatial" in config:
@@ -127,12 +129,24 @@ def _build_transformer(config, H, W):
     )
 
 
+def _build_patch_transformer(config, H, W):
+    from src.models.patch_transformer import SstPatchTransformer
+    return SstPatchTransformer(
+        height=H, width=W,
+        patch_height=config["patch_height"], patch_width=config["patch_width"],
+        seq_len=config["context_len"], horizon=config["horizon"],
+        d_model=config["d_model"], n_blocks=config["n_blocks"],
+        n_heads=config["n_heads"], d_ff=config["d_ff"], dropout=config["dropout"],
+    )
+
+
 MODEL_BUILDERS = {
     "tubelet":     _build_tubelet,
     "lstm":        _build_lstm,
     "informer":    _build_informer,
     "convlstm":    _build_convlstm,
     "transformer": _build_transformer,
+    "patch_transformer": _build_patch_transformer,
 }
 
 

@@ -44,8 +44,28 @@ MODEL_COLOURS = {
     "rnn":         "#e15759",  # red
     "transformer": "#b07aa1",  # purple
     "informer":    "#76b7b2",  # teal
+    "patch_transformer": "#edc948",  # yellow
     "unknown":     "#9c9c9c",  # grey
 }
+
+
+def _infer_model_type(config: dict) -> str:
+    """Identify model for runs predating the model_type key (old Tubelet/Transformer)."""
+    if config.get("model_type"):
+        return config["model_type"]
+    if "t_s" in config and "p_h" in config:
+        return "tubelet"
+    if "patch_height" in config and "patch_width" in config:
+        return "patch_transformer"
+    if "factor" in config and "label_len" in config:
+        return "informer"
+    if "hidden_dim" in config and "kernel_size" in config:
+        return "convlstm"
+    if "hidden_size" in config and "d_spatial" in config:
+        return "lstm"
+    if "ffn_dim" in config and "n_heads" in config:
+        return "transformer"
+    return "unknown"
 
 # Hyperparameters to scatter — common and model-specific.
 # Runs that don't have a key just get skipped in that subplot.
@@ -84,7 +104,7 @@ def load_runs() -> list[dict]:
 
         # Normalise key names across old and new run formats
         config.setdefault("learning_rate", config.pop("lr", config.get("learning_rate")))
-        model_type = config.get("model_type", "unknown")
+        model_type = _infer_model_type(config)
 
         rmse_steps = []
         pers_steps_raw = []

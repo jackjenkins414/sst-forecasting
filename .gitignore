@@ -214,3 +214,8 @@ data/raw/*
 !data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
+
+# Large retrain artifacts — regenerate via retrain_best.py (too big for git)
+experiments/best_*/*.npy
+experiments/best_*/*.pt
+experiments/*_log.txt
