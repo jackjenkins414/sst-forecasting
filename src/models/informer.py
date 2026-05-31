@@ -1082,7 +1082,8 @@ class ProbSparseInformer(nn.Module):
         d_ff: int = 512,
         dropout: float = 0.1,
         factor: int = 5,
-        label_len: int = None
+        label_len: int = None,
+        attention_type: str = "probsparse"
     ):
         """Build the full ProbSparse Informer from its component classes.
 
@@ -1116,6 +1117,8 @@ class ProbSparseInformer(nn.Module):
             Number of decoder start tokens. 
             If provided, it will be concat(start_tokens, zeros). 
             Else, it will be (context_len // 2).
+        attention_type : str
+            Defines the attention mechanism (Full or ProbSparse). 
         """
         super().__init__()
         self.h = height
@@ -1143,11 +1146,15 @@ class ProbSparseInformer(nn.Module):
             encoder_layers.append(
                 EncoderLayer(
                     # Multi-head ProbSparse self-attention.
+                    # NOTE: The above comments assume ProbSparse Attention.
                     SelfAttentionLayer(
-                        # Encoder uses unmasked attention, 
-                        # allowing every timestep to attend globally.
-                        ProbSparseAttention(False, factor, dropout),
-                        d_model, n_heads
+                        attention=self.select_attention(attention_type=attention_type, 
+                                                        masked=False, 
+                                                        factor=factor, 
+                                                        dropout=dropout
+                                                        ),
+                        d_model=d_model,
+                        n_heads=n_heads,
                     ),
 
                     # Position-wise feed-forward.
@@ -1171,9 +1178,15 @@ class ProbSparseInformer(nn.Module):
                 DecoderLayer(
                     # Masked Decoder ProbSparse self-attention. 
                     # Causal masking prevents future leakage.
+                    # NOTE: The above comments assume ProbSparse Attention.
                     SelfAttentionLayer(
-                        ProbSparseAttention(True, factor, dropout),
-                        d_model, n_heads,
+                        attention=self.select_attention(attention_type=attention_type, 
+                                                        masked=True, 
+                                                        factor=factor, 
+                                                        dropout=dropout
+                                                        ),
+                        d_model=d_model,
+                        n_heads=n_heads,
                     ),
 
                     # Cross-attention allows the decoder to attend to encoder memory.
@@ -1190,6 +1203,20 @@ class ProbSparseInformer(nn.Module):
 
         # Projection from decoder output to the SST grid.
         self.proj_head = OutputProjectionHead(d_model, height, width)
+
+    # HELPER FUNCTION - Define the attention mechanism. 
+    def select_attention(self, attention_type, masked, factor, dropout):
+        """
+        Selects the attention mechanism based on an input string. 
+        """
+        attention_type = attention_type.strip().lower()
+
+        if attention_type == "probsparse":
+            return ProbSparseAttention(masked, factor, dropout)
+        elif attention_type == "full":
+            return FullAttention(masked, dropout)
+        else:
+            raise ValueError(f"Unknown attention_type: {attention_type}")
     
     # HELPER FUNCTION - Simple Sequential Temporal Index Builder
     # NOTE: Assumes 365 day years. 

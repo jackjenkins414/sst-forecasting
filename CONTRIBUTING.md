@@ -70,7 +70,8 @@ This is where your new model goes. One file per model. Add whatever you guys lik
 ### `scripts/`
 
 - **`run_lstm_experiment.py`** — End-to-end experiment for the LSTM. Use this as a template for your own model's experiment script.
-- **`run_informer_experiment.py`** - End-to-end experiment for the ProbSparse Informer model. Compares the model to the Persistance and RNN baselines based on the LSTM experiment script template. 
+- **`run_probsparse_informer_experiment.py`** - End-to-end experiment for the ProbSparse Informer model. Compares the model to the Persistance and RNN baselines based on the LSTM experiment script template. 
+- **`run_probsparse_informer_experiment.py`** - End-to-end experiment for a Full Attention variant through the ProbSparse Informer model. Compares the model to the Persistance and RNN baselines based on the LSTM experiment script template. 
 
 ## How to add a new model
 
