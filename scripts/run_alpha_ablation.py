@@ -43,6 +43,20 @@ ZARR_PATH   = PROJECT_ROOT / "data/processed/oisst_coralsea.zarr"
 RESULTS_DIR = PROJECT_ROOT / "experiments/results"
 
 DEFAULT_ALPHAS = [0.0, 0.05, 0.10, 0.20]
+ALPHA_MAX = 0.20  # anomaly_alpha search-space ceiling
+
+
+def _auto_alpha_grid(optimal_alpha: float | None) -> list[float]:
+    """Bracket the tuned optimum: {0, a/2, a, 2a}, clamped to [0, ALPHA_MAX], deduped.
+
+    Anchors the sweep on the model's own tuned alpha (a*) instead of arbitrary
+    values, while still spanning below/above it to reveal the response curve.
+    Falls back to a fixed spread when a* ~= 0, where a relative grid degenerates.
+    """
+    if optimal_alpha is None or optimal_alpha < 1e-3:
+        return list(DEFAULT_ALPHAS)
+    raw = [0.0, optimal_alpha / 2, optimal_alpha, min(2 * optimal_alpha, ALPHA_MAX)]
+    return sorted({round(a, 4) for a in raw})
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +123,21 @@ MODEL_BUILDERS = {
 # Find the best (non-ablation) run for a model
 # ---------------------------------------------------------------------------
 
+def _infer_model_type(config: dict) -> str:
+    """Identify model for runs predating the model_type key (e.g. old Tubelet)."""
+    if "t_s" in config and "p_h" in config:
+        return "tubelet"
+    if "hidden_size" in config and "d_spatial" in config:
+        return "lstm"
+    if "factor" in config and "label_len" in config:
+        return "informer"
+    if "hidden_dim" in config and "n_layers" in config:
+        return "convlstm"
+    if "ffn_dim" in config and "n_heads" in config:
+        return "transformer"
+    return "unknown"
+
+
 def find_best_config(model_type: str) -> dict:
     best = None
     best_rmse = float("inf")
@@ -117,7 +146,8 @@ def find_best_config(model_type: str) -> dict:
         if not cf.exists() or not mf.exists():
             continue
         config = json.load(open(cf))
-        if config.get("model_type") != model_type:
+        mt = config.get("model_type") or config.get("model") or _infer_model_type(config)
+        if mt != model_type:
             continue
         if config.get("ablation"):           # don't seed from a prior ablation
             continue
@@ -138,9 +168,13 @@ def find_best_config(model_type: str) -> dict:
 # Run the ablation
 # ---------------------------------------------------------------------------
 
-def run_ablation(model_type: str, alphas: list[float]):
+def run_ablation(model_type: str, alphas: list[float] | None = None):
     builder = MODEL_BUILDERS[model_type]
     base = find_best_config(model_type)
+
+    if alphas is None:
+        alphas = _auto_alpha_grid(base.get("anomaly_alpha"))
+    print(f"  alpha grid: {alphas}  (tuned optimum alpha*={base.get('anomaly_alpha')})")
 
     root         = zarr.open_group(str(ZARR_PATH), mode="r")
     norm_mean    = float(root.attrs["norm_mean"])
@@ -245,13 +279,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True, choices=list(MODEL_BUILDERS))
     parser.add_argument("--alphas", type=str, default=None,
-                        help="Comma-separated alpha grid (default: 0,0.05,0.1,0.2)")
+                        help="Comma-separated alpha grid. Default: bracket the "
+                             "tuned optimum {0, a*/2, a*, 2a*}.")
     args = parser.parse_args()
 
-    alphas = (DEFAULT_ALPHAS if args.alphas is None
+    alphas = (None if args.alphas is None
               else [float(a) for a in args.alphas.split(",")])
 
-    print(f"=== Alpha ablation: {args.model} | grid={alphas} ===")
+    print(f"=== Alpha ablation: {args.model} ===")
     results = run_ablation(args.model, alphas)
 
     print("\n--- Ablation summary ---")
