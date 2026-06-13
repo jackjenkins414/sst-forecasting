@@ -43,7 +43,7 @@ BEST_DIR     = PROJECT_ROOT / "experiments"
 RANDOM_SEED  = 42
 EXAMPLE_IDX  = 100   # fixed test-window index used for heatmap across all models
 
-ALL_MODELS = ["tubelet", "lstm", "informer", "convlstm", "transformer", "patch_transformer"]
+ALL_MODELS = ["tubelet", "lstm", "informer", "convlstm", "transformer", "patch_transformer", "rnn"]
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +129,16 @@ def _build_transformer(config, H, W):
     )
 
 
+def _build_rnn(config, H, W):
+    from src.baselines.rnn import RNN
+    return RNN(
+        H=H, W=W,
+        context_len=config["context_len"], horizon=config["horizon"],
+        d_spatial=config["d_spatial"], hidden_size=config["hidden_size"],
+        num_layers=config["num_layers"], dropout=config["dropout"],
+    )
+
+
 def _build_patch_transformer(config, H, W):
     from src.models.patch_transformer import SstPatchTransformer
     return SstPatchTransformer(
@@ -147,6 +157,7 @@ MODEL_BUILDERS = {
     "convlstm":    _build_convlstm,
     "transformer": _build_transformer,
     "patch_transformer": _build_patch_transformer,
+    "rnn":         _build_rnn,
 }
 
 

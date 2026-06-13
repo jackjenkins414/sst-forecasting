@@ -182,24 +182,26 @@ def generate_report(model_type: str, land_mask: np.ndarray,
     cmap_sst = "RdYlBu_r"
     err_abs   = np.nanmax(np.abs(err_d7))
 
-    extent = [lon[0], lon[-1], lat[-1], lat[0]]
+    # lat is stored south-to-north (lat[0]=southernmost). Use origin="lower"
+    # with extent[bottom,top]=[lat[0], lat[-1]] so north sits at the top.
+    extent = [lon[0], lon[-1], lat[0], lat[-1]]
 
     ax_true = fig.add_subplot(gs[1, 0])
-    im1 = ax_true.imshow(true_d7, origin="upper", aspect="auto",
+    im1 = ax_true.imshow(true_d7, origin="lower", aspect="auto",
                          extent=extent, cmap=cmap_sst, vmin=vmin, vmax=vmax)
     ax_true.set_title(f"True SST — day 7\n{example_date}", fontsize=9)
     ax_true.set_xlabel("Lon"); ax_true.set_ylabel("Lat")
     plt.colorbar(im1, ax=ax_true, fraction=0.04, pad=0.04).set_label("°C", fontsize=8)
 
     ax_pred = fig.add_subplot(gs[1, 1])
-    im2 = ax_pred.imshow(pred_d7, origin="upper", aspect="auto",
+    im2 = ax_pred.imshow(pred_d7, origin="lower", aspect="auto",
                          extent=extent, cmap=cmap_sst, vmin=vmin, vmax=vmax)
     ax_pred.set_title(f"Predicted SST — day 7\n{model_type}", fontsize=9)
     ax_pred.set_xlabel("Lon"); ax_pred.set_ylabel("Lat")
     plt.colorbar(im2, ax=ax_pred, fraction=0.04, pad=0.04).set_label("°C", fontsize=8)
 
     ax_err = fig.add_subplot(gs[1, 2])
-    im3 = ax_err.imshow(err_d7, origin="upper", aspect="auto",
+    im3 = ax_err.imshow(err_d7, origin="lower", aspect="auto",
                         extent=extent, cmap="RdBu_r",
                         vmin=-err_abs, vmax=err_abs)
     ax_err.set_title("Error (Pred − True) — day 7", fontsize=9)

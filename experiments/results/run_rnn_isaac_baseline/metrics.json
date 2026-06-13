@@ -1,0 +1,15 @@
+{
+  "mean_rmse": {
+    "model": 0.6
+  },
+  "rmse_per_step": {
+    "day_1": 0.6,
+    "day_2": 0.6,
+    "day_3": 0.6,
+    "day_4": 0.6,
+    "day_5": 0.6,
+    "day_6": 0.6,
+    "day_7": 0.6
+  },
+  "epochs_trained": 0
+}
