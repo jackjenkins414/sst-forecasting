@@ -310,6 +310,8 @@ def retrain_one(model_type: str, device: torch.device,
         config["anomaly_alpha"] = best_alpha
 
     eff_seed = RANDOM_SEED if seed is None else seed
+    config = dict(config)
+    config["random_seed"] = eff_seed
     np.random.seed(eff_seed)
     torch.manual_seed(eff_seed)
     if torch.cuda.is_available():
