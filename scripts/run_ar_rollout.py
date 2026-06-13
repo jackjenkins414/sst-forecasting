@@ -228,7 +228,11 @@ def main():
 
     for mt in args.models:
         print(f"\n=== {mt} ===")
-        model = load_model(mt, device, H, W, seed=args.seed)
+        try:
+            model = load_model(mt, device, H, W, seed=args.seed)
+        except (FileNotFoundError, ModuleNotFoundError, ImportError) as e:
+            print(f"  SKIP {mt}: {e}", file=sys.stderr)
+            continue
         n = X_norm.shape[0]
         n_batches = (n + args.batch_size - 1) // args.batch_size
         all_preds = []
