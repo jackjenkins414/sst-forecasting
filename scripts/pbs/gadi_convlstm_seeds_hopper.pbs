@@ -1,0 +1,124 @@
+#!/bin/bash
+#PBS -N sstf_convlstm_seeds
+#PBS -P dx61
+#PBS -q gpuhopper
+#PBS -l ncpus=12
+#PBS -l ngpus=1
+#PBS -l mem=90GB
+#PBS -l jobfs=50GB
+#PBS -l walltime=06:00:00
+#PBS -l storage=scratch/um09
+#PBS -j oe
+#PBS -o /scratch/um09/as1708/sst-forecasting/experiments/results/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ConvLSTM multi-seed retrain + AR rollout (seeds 1, 2, 3) — H200 edition
+#
+# Runs sequentially via run_seed_queue.py:
+#   retrain_best.py --models convlstm --seed N  ->  experiments/best_convlstm_seedN/
+#   run_ar_rollout.py --models convlstm --seed N -> experiments/ar_rollout/seedN/
+#
+# Queue: gpuhopper (H200 SXM5 141 GB HBM3e, dx61 project)
+# ncpus/GPU ratio: 12 (mandatory for gpuhopper)
+# Estimated wall time: ~3.5 h for 3 × (retrain ~60 min + rollout ~5 min)
+#   H200 vs A100 speedup: ~2.4× (HBM bandwidth 4.8 TB/s vs 2.0 TB/s)
+#   Workload is memory-bandwidth bound at batch_size=2
+#
+# H200 optimisations enabled:
+#   BF16 AMP     : enabled in train_model() via torch.autocast (no GradScaler needed)
+#   TF32         : set via Python torch.backends flags — free speedup on FP32 matmuls
+#   cudnn.bench  : autotuner picks best kernel once then reuses
+#   numactl      : --localalloc pins host tensors to local NUMA node
+#   pin_memory   : enabled in DataLoader when CUDA detected (in dataloaders.py)
+#   mem=90GB     : sufficient for L=90 context preload (276 MB) + activations
+# ─────────────────────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+REPO="/scratch/um09/as1708/sst-forecasting"
+cd "$REPO"
+
+module purge
+module load python3/3.11.7
+source "$REPO/.venv/bin/activate"
+
+# ── CUDA / GPU env ────────────────────────────────────────────────────────────
+export CUDA_VISIBLE_DEVICES=0
+export CUDA_LAUNCH_BLOCKING=0       # async GPU ops (normal production mode)
+
+# ── Threading (12 CPUs; 4 for DataLoader workers, rest for MKL/OMP) ──────────
+export OMP_NUM_THREADS=4
+export MKL_NUM_THREADS=4
+export OPENBLAS_NUM_THREADS=4
+export NUMEXPR_NUM_THREADS=4
+export PYTHONUNBUFFERED=1
+export TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1
+
+# ── Provenance snapshot ───────────────────────────────────────────────────────
+echo "=== provenance $(date -Is) ==="
+echo "host:        $(hostname)"
+echo "pbs_job:     ${PBS_JOBID:-none}"
+echo "queue:       gpuhopper (H200 SXM5 141 GB HBM3e)"
+echo "branch:      $(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+echo "sha:         $(git rev-parse HEAD 2>/dev/null)"
+echo "python:      $(python --version 2>&1)"
+echo "torch:       $(python -c 'import torch; print(torch.__version__)' 2>&1)"
+echo "cuda:        $(python -c 'import torch; print(torch.version.cuda)' 2>&1)"
+echo "gpu:         $(python -c 'import torch; print(torch.cuda.get_device_name(0))' 2>&1)"
+echo "vram_gb:     $(python -c 'import torch; print(round(torch.cuda.get_device_properties(0).total_memory/1e9,1))' 2>&1)"
+echo "==="
+
+# ── Apply H200 PyTorch flags ──────────────────────────────────────────────────
+python - <<'PYEOF'
+import torch, sys
+
+# TF32: free ~2× speedup on matmul/conv via tensor cores (mathematically ~FP32)
+torch.set_float32_matmul_precision("high")
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32       = True
+
+# cudnn autotuner: benchmark once then reuse best kernel for fixed input sizes
+torch.backends.cudnn.benchmark = True
+
+assert torch.cuda.is_available(), "CUDA not available — check module/venv setup"
+d = torch.cuda.get_device_properties(0)
+print(f"[pbs] GPU OK : {d.name}  VRAM={d.total_memory/1e9:.1f} GB")
+print(f"[pbs] TF32   : matmul={torch.backends.cuda.matmul.allow_tf32}  "
+      f"cudnn={torch.backends.cudnn.allow_tf32}")
+print(f"[pbs] BF16   : autocast enabled in train_model() (CUDA device detected)")
+sys.exit(0)
+PYEOF
+
+# ── GPU memory pre-check ──────────────────────────────────────────────────────
+python - <<'PYEOF'
+import torch, sys
+torch.cuda.empty_cache()
+free, total = torch.cuda.mem_get_info(0)
+free_gb  = free  / 1e9
+total_gb = total / 1e9
+used_gb  = total_gb - free_gb
+print(f"[pbs] GPU memory: {free_gb:.1f} GB free / {total_gb:.1f} GB total ({used_gb:.1f} GB in use)")
+if free_gb < 120.0:
+    print(f"[pbs] ERROR: GPU has only {free_gb:.1f} GB free — likely stale context from a previous job.")
+    print("[pbs] Re-submit to land on a clean node. Exiting.")
+    sys.exit(1)
+print("[pbs] GPU memory OK — proceeding to training.")
+PYEOF
+
+# ── Run seed queue ────────────────────────────────────────────────────────────
+LOG="$REPO/experiments/results/convlstm_seeds_${PBS_JOBID}.log"
+
+numactl --localalloc \
+python -u scripts/run_seed_queue.py \
+    --models convlstm \
+    --seeds 1 2 3 \
+    2>&1 | tee "$LOG"
+
+echo "[pbs] Seed queue finished. Exit: $?"
+echo "[pbs] Outputs:"
+ls -lh "$REPO/experiments/best_convlstm_seed1/" 2>/dev/null || echo "  best_convlstm_seed1/ missing"
+ls -lh "$REPO/experiments/best_convlstm_seed2/" 2>/dev/null || echo "  best_convlstm_seed2/ missing"
+ls -lh "$REPO/experiments/best_convlstm_seed3/" 2>/dev/null || echo "  best_convlstm_seed3/ missing"
+ls -lh "$REPO/experiments/ar_rollout/seed1/"    2>/dev/null || echo "  ar_rollout/seed1/ missing"
+ls -lh "$REPO/experiments/ar_rollout/seed2/"    2>/dev/null || echo "  ar_rollout/seed2/ missing"
+ls -lh "$REPO/experiments/ar_rollout/seed3/"    2>/dev/null || echo "  ar_rollout/seed3/ missing"
