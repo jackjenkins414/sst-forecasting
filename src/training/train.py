@@ -25,7 +25,16 @@ def train_model(
 
     If early_stop_patience is set, training stops when val loss has not
     improved for that many consecutive epochs.
+
+    A100 optimisations: BF16 autocast is enabled automatically when the device
+    is CUDA (wide dynamic range — no GradScaler needed). TF32 must be enabled
+    before calling this function (set in the PBS/launch script).
     """
+    # BF16 AMP: enabled on CUDA (A100 tensor cores give ~2× throughput vs FP32).
+    # Falls back to no-op on CPU so the same code runs locally.
+    _use_amp = device.type == "cuda"
+    _amp_dtype = torch.bfloat16  # BF16: no GradScaler needed (wide exponent range)
+
     train_losses = []
     val_losses = []
 
@@ -41,13 +50,14 @@ def train_model(
             batch_y = batch_y.to(device)
 
             optimizer.zero_grad()
-            preds = model(batch_X)
+            with torch.autocast(device_type=device.type, dtype=_amp_dtype, enabled=_use_amp):
+                preds = model(batch_X)
 
-            if land_mask is not None:
-                mask = land_mask.expand_as(preds)
-                loss = criterion(preds[mask], batch_y[mask])
-            else:
-                loss = criterion(preds, batch_y)
+                if land_mask is not None:
+                    mask = land_mask.expand_as(preds)
+                    loss = criterion(preds[mask], batch_y[mask])
+                else:
+                    loss = criterion(preds, batch_y)
 
             loss.backward()
             if grad_clip is not None:
@@ -64,13 +74,14 @@ def train_model(
             for batch_X, batch_y in val_loader:
                 batch_X = batch_X.to(device)
                 batch_y = batch_y.to(device)
-                preds = model(batch_X)
+                with torch.autocast(device_type=device.type, dtype=_amp_dtype, enabled=_use_amp):
+                    preds = model(batch_X)
 
-                if land_mask is not None:
-                    mask = land_mask.expand_as(preds)
-                    loss = criterion(preds[mask], batch_y[mask])
-                else:
-                    loss = criterion(preds, batch_y)
+                    if land_mask is not None:
+                        mask = land_mask.expand_as(preds)
+                        loss = criterion(preds[mask], batch_y[mask])
+                    else:
+                        loss = criterion(preds, batch_y)
 
                 val_loss += loss.item() * batch_X.size(0)
 
