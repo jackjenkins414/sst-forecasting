@@ -43,7 +43,7 @@ BEST_DIR     = PROJECT_ROOT / "experiments"
 RANDOM_SEED  = 42
 EXAMPLE_IDX  = 100   # fixed test-window index used for heatmap across all models
 
-ALL_MODELS = ["tubelet", "lstm", "informer", "convlstm", "transformer", "patch_transformer"]
+ALL_MODELS = ["tubelet", "lstm", "informer", "convlstm", "transformer", "patch_transformer", "rnn"]
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +140,16 @@ def _build_patch_transformer(config, H, W):
     )
 
 
+def _build_rnn(config, H, W):
+    from src.baselines.rnn import RNN
+    return RNN(
+        H=H, W=W,
+        context_len=config["context_len"], horizon=config["horizon"],
+        d_spatial=config["d_spatial"], hidden_size=config["hidden_size"],
+        num_layers=config["num_layers"], dropout=config["dropout"],
+    )
+
+
 MODEL_BUILDERS = {
     "tubelet":     _build_tubelet,
     "lstm":        _build_lstm,
@@ -147,6 +157,7 @@ MODEL_BUILDERS = {
     "convlstm":    _build_convlstm,
     "transformer": _build_transformer,
     "patch_transformer": _build_patch_transformer,
+    "rnn":         _build_rnn,
 }
 
 
@@ -278,9 +289,11 @@ def idx_to_date(zarr_root, window_start_idx: int, context_len: int) -> str:
 
 def retrain_one(model_type: str, device: torch.device,
                 zarr_root, norm_mean: float, norm_std: float,
-                land_mask: np.ndarray):
+                land_mask: np.ndarray, seed: int | None = None):
     H, W = land_mask.shape
-    save_dir = BEST_DIR / f"best_{model_type}"
+    # seed=None -> canonical dir (backward compatible); explicit seed -> suffix.
+    suffix = f"_seed{seed}" if seed is not None else ""
+    save_dir = BEST_DIR / f"best_{model_type}{suffix}"
     save_dir.mkdir(parents=True, exist_ok=True)
 
     config = find_best_config(model_type)
@@ -296,8 +309,13 @@ def retrain_one(model_type: str, device: torch.device,
         config = dict(config)
         config["anomaly_alpha"] = best_alpha
 
-    np.random.seed(RANDOM_SEED)
-    torch.manual_seed(RANDOM_SEED)
+    eff_seed = RANDOM_SEED if seed is None else seed
+    config = dict(config)
+    config["random_seed"] = eff_seed
+    np.random.seed(eff_seed)
+    torch.manual_seed(eff_seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(eff_seed)
 
     batch_size = config.get("batch_size", 8)
     train_loader, val_loader, test_loader = create_dataloaders(
@@ -391,6 +409,12 @@ def main():
         "--models", nargs="+", choices=ALL_MODELS, default=ALL_MODELS,
         help="Which models to retrain (default: all)",
     )
+    parser.add_argument(
+        "--seed", type=int, default=None,
+        help="Random seed. Default (None) uses canonical seed 42 and writes to "
+             "experiments/best_<model>/. Pass an explicit int (e.g. 1, 2, 3) for "
+             "variance studies — outputs land in experiments/best_<model>_seed<N>/.",
+    )
     args = parser.parse_args()
 
     root         = zarr.open_group(str(ZARR_PATH), mode="r")
@@ -400,14 +424,18 @@ def main():
     device       = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print(f"Device: {device}")
-    print(f"Models to retrain: {args.models}\n")
+    print(f"Models to retrain: {args.models}")
+    if args.seed is not None:
+        print(f"Seed: {args.seed} (writing to best_<model>_seed{args.seed}/)")
+    print()
 
     results = {}
     for model_type in args.models:
         print(f"=== {model_type.upper()} ===")
         try:
             rmse = retrain_one(model_type, device, root,
-                               norm_mean, norm_std, land_mask)
+                               norm_mean, norm_std, land_mask,
+                               seed=args.seed)
             results[model_type] = rmse
         except SystemExit as e:
             print(f"  Skipped: {e}")
