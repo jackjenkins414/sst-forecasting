@@ -348,6 +348,25 @@ def retrain_one(model_type: str, device: torch.device,
     model = MODEL_BUILDERS[model_type](config, H, W).to(device)
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
+    # torch.compile fuses the ConvLSTM's per-timestep gate elementwise ops and
+    # collapses the ~hundreds of tiny eager kernel launches of the 90-step
+    # recurrence into far fewer — the dominant cost at the HPO batch size B=2
+    # (dispatch/launch-bound, not FLOP-bound). Same weights/maths, no command
+    # change. On CUDA, inductor uses Triton kernels (no C++/Python.h needed).
+    #
+    # Compilation is LAZY (triggered on the first forward), so a backend failure
+    # would otherwise throw mid-training; suppress_errors makes dynamo fall back
+    # to eager automatically (with a warning) so the deliverable never breaks.
+    if use_cuda:
+        try:
+            import torch._dynamo
+            torch._dynamo.config.suppress_errors = True
+            model = torch.compile(model)
+            print("  torch.compile: attempting (Triton/CUDA; auto-falls back to "
+                  "eager if unsupported; first step pays a one-time compile cost)")
+        except Exception as e:
+            print(f"  torch.compile unavailable ({e}); running eager")
+
     optimizer = optim.Adam(model.parameters(),
                            lr=learning_rate,
                            weight_decay=config.get("weight_decay", 1e-4))
@@ -391,7 +410,10 @@ def retrain_one(model_type: str, device: torch.device,
     # Save all artifacts
     np.save(save_dir / "predictions.npy", preds)
     np.save(save_dir / "targets.npy",     targets)
-    torch.save(model.state_dict(), save_dir / "model.pt")
+    # Unwrap torch.compile (OptimizedModule) so the saved keys have no
+    # "_orig_mod." prefix and load cleanly into a plain model in run_ar_rollout.
+    save_model = getattr(model, "_orig_mod", model)
+    torch.save(save_model.state_dict(), save_dir / "model.pt")
 
     with open(save_dir / "loss_curves.json", "w") as f:
         json.dump({"train": train_losses, "val": val_losses}, f, indent=2)
