@@ -106,7 +106,7 @@ def _build_informer(config, H, W):
 
 
 def _build_convlstm(config, H, W):
-    from src.sst_forecasting.models.convlstm import SpatialConvLSTM
+    from src.models.convlstm import SpatialConvLSTM
     hidden_channels = config.get("hidden_channels") or \
                       [config["hidden_dim"]] * config["n_layers"]
     return SpatialConvLSTM(
@@ -118,13 +118,13 @@ def _build_convlstm(config, H, W):
 
 
 def _build_transformer(config, H, W):
-    from src.sst_forecasting.models.transformer import SpatialFlatTransformer
+    from src.models.transformer import SstFlatTransformer as SpatialFlatTransformer
     return SpatialFlatTransformer(
-        H=H, W=W,
-        context_len=config["context_len"], horizon=config["horizon"],
-        d_model=config["d_model"], nhead=config["n_heads"],
-        num_encoder_layers=config["n_layers"],
-        dim_feedforward=config["ffn_dim"],
+        height=H, width=W,
+        seq_len=config["context_len"], horizon=config["horizon"],
+        d_model=config["d_model"], n_heads=config["n_heads"],
+        n_blocks=config["n_layers"],
+        d_ff=config["ffn_dim"],
         dropout=config["dropout"],
     )
 
