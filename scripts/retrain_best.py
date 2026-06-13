@@ -289,7 +289,8 @@ def idx_to_date(zarr_root, window_start_idx: int, context_len: int) -> str:
 
 def retrain_one(model_type: str, device: torch.device,
                 zarr_root, norm_mean: float, norm_std: float,
-                land_mask: np.ndarray, seed: int | None = None):
+                land_mask: np.ndarray, seed: int | None = None,
+                batch_size_override: int | None = None):
     H, W = land_mask.shape
     # seed=None -> canonical dir (backward compatible); explicit seed -> suffix.
     suffix = f"_seed{seed}" if seed is not None else ""
@@ -317,7 +318,9 @@ def retrain_one(model_type: str, device: torch.device,
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(eff_seed)
 
-    batch_size = config.get("batch_size", 8)
+    batch_size = batch_size_override if batch_size_override is not None else config.get("batch_size", 8)
+    if batch_size_override is not None and batch_size_override != config.get("batch_size"):
+        print(f"  batch_size overridden: {config.get('batch_size')} → {batch_size}")
     train_loader, val_loader, test_loader = create_dataloaders(
         zarr_path=ZARR_PATH,
         context_len=config["context_len"],
@@ -415,6 +418,12 @@ def main():
              "experiments/best_<model>/. Pass an explicit int (e.g. 1, 2, 3) for "
              "variance studies — outputs land in experiments/best_<model>_seed<N>/.",
     )
+    parser.add_argument(
+        "--batch-size", type=int, default=None,
+        help="Override the config batch_size. Useful when retraining on a GPU with "
+             "more VRAM than was used during HPO (e.g. H200 141 GB vs original run). "
+             "Does not affect model quality — only training throughput.",
+    )
     args = parser.parse_args()
 
     root         = zarr.open_group(str(ZARR_PATH), mode="r")
@@ -435,7 +444,8 @@ def main():
         try:
             rmse = retrain_one(model_type, device, root,
                                norm_mean, norm_std, land_mask,
-                               seed=args.seed)
+                               seed=args.seed,
+                               batch_size_override=args.batch_size)
             results[model_type] = rmse
         except SystemExit as e:
             print(f"  Skipped: {e}")
