@@ -151,6 +151,16 @@ def aggregate_ar(model: str, ar_dirs: list[tuple[int, Path]]) -> dict:
         if pers_ref is None:
             pers_ref = rmse["persistence"]
             clim_ref = rmse["climatology"]
+    # Ensure consistent horizon across seeds (truncate to the minimum if needed)
+    min_h = min(len(r) for r in rmse_list)
+    if any(len(r) != min_h for r in rmse_list):
+        print(f"WARNING: {model} rollouts have inconsistent horizons; truncating to {min_h}", file=sys.stderr)
+    rmse_list = [r[:min_h] for r in rmse_list]
+    skill_list = [r[:min_h] for r in skill_list]
+    if pers_ref is not None:
+        pers_ref = pers_ref[:min_h]
+        clim_ref = clim_ref[:min_h]
+
     rmse_arr  = stack_per_day(rmse_list)
     skill_arr = stack_per_day(skill_list)
     n = len(ar_dirs)
