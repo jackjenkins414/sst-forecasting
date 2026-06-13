@@ -60,11 +60,13 @@ DISPLAY = {
 # Core: load a model and run an AR rollout on a batch of contexts
 # ---------------------------------------------------------------------------
 
-def load_model(model_type: str, device: torch.device, H: int, W: int):
+def load_model(model_type: str, device: torch.device, H: int, W: int,
+               seed: int | None = None):
     # Read the config that the retrained checkpoint was built with — directly
-    # from best_<model>/config.json. Avoids relying on the original HPO run dir,
-    # which may not exist on every branch.
-    best = BEST_DIR / f"best_{model_type}"
+    # from best_<model>[_seed<N>]/config.json. Avoids relying on the original
+    # HPO run dir, which may not exist on every branch.
+    suffix = f"_seed{seed}" if seed is not None else ""
+    best = BEST_DIR / f"best_{model_type}{suffix}"
     config = json.load(open(best / "config.json"))
     model = MODEL_BUILDERS[model_type](config, H, W).to(device)
     model.load_state_dict(torch.load(best / "model.pt", map_location=device))
@@ -166,8 +168,13 @@ def main():
     parser.add_argument("--models", nargs="+", default=DEFAULT_MODELS,
                         choices=DEFAULT_MODELS,
                         help="Which models to roll out.")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Load best_<model>_seed<N>/ instead of the canonical "
+                             "best_<model>/; outputs go to ar_rollout/seed<N>/. "
+                             "Defaults to the canonical (seed-42) checkpoints.")
     args = parser.parse_args()
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_dir = OUT_DIR / f"seed{args.seed}" if args.seed is not None else OUT_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -221,7 +228,7 @@ def main():
 
     for mt in args.models:
         print(f"\n=== {mt} ===")
-        model = load_model(mt, device, H, W)
+        model = load_model(mt, device, H, W, seed=args.seed)
         n = X_norm.shape[0]
         n_batches = (n + args.batch_size - 1) // args.batch_size
         all_preds = []
@@ -259,13 +266,13 @@ def main():
             torch.cuda.empty_cache()
 
     # --- Save artifacts ---
-    json.dump(results,       open(OUT_DIR / "rmse_per_day.json",        "w"), indent=2)
-    json.dump(skill_results, open(OUT_DIR / "skill_vs_climatology.json","w"), indent=2)
-    json.dump(useful,        open(OUT_DIR / "useful_horizon.json",       "w"), indent=2)
+    json.dump(results,       open(out_dir / "rmse_per_day.json",        "w"), indent=2)
+    json.dump(skill_results, open(out_dir / "skill_vs_climatology.json","w"), indent=2)
+    json.dump(useful,        open(out_dir / "useful_horizon.json",       "w"), indent=2)
 
     plot_ar(results, skill_results, useful, args.max_horizon,
-            OUT_DIR / "ar_long_horizon.png")
-    print(f"\nOutputs written to {OUT_DIR}")
+            out_dir / "ar_long_horizon.png")
+    print(f"\nOutputs written to {out_dir}")
     print(f"Useful horizons: {useful}")
 
 
