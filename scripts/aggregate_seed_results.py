@@ -75,17 +75,23 @@ def find_seeded_summaries(model: str, include_canonical: bool) -> list[tuple[int
 
 
 def find_seeded_ar(model: str) -> list[tuple[int, Path]]:
-    """Return [(seed, seed_dir)] for AR rollout outputs that include this model."""
+    """Return [(seed, seed_dir)] for AR rollout outputs that include this model.
+
+    Accepts both the new per-model layout (rmse_per_day_<model>.json) and the
+    legacy combined layout (rmse_per_day.json with a <model> key).
+    """
     hits: list[tuple[int, Path]] = []
     for d in sorted(AR_DIR.glob("seed*")):
         m = re.match(r"seed(\d+)$", d.name)
         if not m:
             continue
-        rmse_file = d / "rmse_per_day.json"
-        if not rmse_file.exists():
+        # Per-model file present -> definite hit.
+        if (d / f"rmse_per_day_{model}.json").exists():
+            hits.append((int(m.group(1)), d))
             continue
-        rmse = json.load(open(rmse_file))
-        if model in rmse:
+        # Legacy combined file with the model key inside.
+        combined = d / "rmse_per_day.json"
+        if combined.exists() and model in json.load(open(combined)):
             hits.append((int(m.group(1)), d))
     return hits
 
@@ -96,6 +102,22 @@ def find_seeded_ar(model: str) -> list[tuple[int, Path]]:
 
 def stack_per_day(arrays: list[list[float]]) -> np.ndarray:
     return np.stack([np.asarray(a, dtype=float) for a in arrays], axis=0)
+
+
+def useful_horizon_from_skill(skill: list[float]) -> int:
+    """Last day before skill first drops to <= 0 (1-indexed).
+
+    This is the first-crossing definition. Wobbles back into positive skill
+    after the initial crossing are ignored, which keeps the summary number
+    consistent across noisy seeds.
+    """
+    useful_day = 0
+    for h, v in enumerate(skill):
+        if v > 0:
+            useful_day = h + 1
+        else:
+            break
+    return useful_day
 
 
 def aggregate_short_horizon(model: str, summaries: list[tuple[int, Path]]) -> dict:
@@ -141,12 +163,20 @@ def aggregate_ar(model: str, ar_dirs: list[tuple[int, Path]]) -> dict:
     pers_ref   = None
     clim_ref   = None
     for _, d in ar_dirs:
-        rmse  = json.load(open(d / "rmse_per_day.json"))
-        skill = json.load(open(d / "skill_vs_climatology.json"))
-        u     = json.load(open(d / "useful_horizon.json"))
+        # Prefer per-model files; fall back to the legacy combined layout.
+        per_model = d / f"rmse_per_day_{model}.json"
+        if per_model.exists():
+            rmse  = json.load(open(per_model))
+            skill = json.load(open(d / f"skill_vs_climatology_{model}.json"))
+        else:
+            rmse  = json.load(open(d / "rmse_per_day.json"))
+            skill = json.load(open(d / "skill_vs_climatology.json"))
         rmse_list.append(rmse[model])
         skill_list.append(skill[model])
-        useful.append(u.get(model, 0))
+        # Derive useful horizon from the saved skill curve so the
+        # first-crossing definition is applied consistently, regardless of
+        # when the underlying rollout was run.
+        useful.append(useful_horizon_from_skill(skill[model]))
         # Baselines are deterministic but we average defensively
         if pers_ref is None:
             pers_ref = rmse["persistence"]

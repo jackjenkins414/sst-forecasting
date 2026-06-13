@@ -255,11 +255,15 @@ def main():
         sk = [skill_score(per_day[h], clim_rmse[h])
               for h in range(args.max_horizon)]
         skill_results[mt] = sk
-        # Useful horizon: largest day where skill > 0
+        # Useful horizon: last day before skill first drops to <= 0.
+        # We still roll out the full max_horizon so the skill curve in
+        # the JSON / plot remains complete; this is purely a summary number.
         useful_day = 0
         for h, v in enumerate(sk):
             if v > 0:
                 useful_day = h + 1   # 1-indexed
+            else:
+                break
         useful[mt] = useful_day
         print(f"  day-1 RMSE: {per_day[0]:.3f}  |  "
               f"day-{args.max_horizon} RMSE: {per_day[-1]:.3f}")
@@ -269,10 +273,21 @@ def main():
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    # --- Save artifacts ---
-    json.dump(results,       open(out_dir / "rmse_per_day.json",        "w"), indent=2)
-    json.dump(skill_results, open(out_dir / "skill_vs_climatology.json","w"), indent=2)
-    json.dump(useful,        open(out_dir / "useful_horizon.json",       "w"), indent=2)
+    # --- Save artifacts: one file per model. Avoids the overwrite bug we had
+    # when the same seed dir was reused by sequential single-model calls.
+    # Baselines are deterministic and stored alongside each model's data so
+    # any per-model file is self-contained.
+    for mt in args.models:
+        if mt not in results:   # may have been skipped on import/load error
+            continue
+        json.dump({"persistence": results["persistence"],
+                   "climatology": results["climatology"],
+                   mt:           results[mt]},
+                  open(out_dir / f"rmse_per_day_{mt}.json", "w"), indent=2)
+        json.dump({mt: skill_results[mt]},
+                  open(out_dir / f"skill_vs_climatology_{mt}.json", "w"), indent=2)
+        json.dump({mt: useful[mt]},
+                  open(out_dir / f"useful_horizon_{mt}.json", "w"), indent=2)
 
     plot_ar(results, skill_results, useful, args.max_horizon,
             out_dir / "ar_long_horizon.png")
