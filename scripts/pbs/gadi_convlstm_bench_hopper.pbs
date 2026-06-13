@@ -1,0 +1,76 @@
+#!/bin/bash
+#PBS -N sstf_convlstm_bench
+#PBS -P dx61
+#PBS -q gpuhopper
+#PBS -l ncpus=12
+#PBS -l ngpus=1
+#PBS -l mem=90GB
+#PBS -l jobfs=50GB
+#PBS -l walltime=04:00:00
+#PBS -l storage=scratch/um09
+#PBS -j oe
+#PBS -o /scratch/um09/as1708/sst-forecasting/experiments/results/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ConvLSTM batch-size validation benchmark (H200).
+# Trains seed-1 to early-stop at B in {2,16,32} with square-root-scaled LR and
+# reports epochs / s-per-epoch / wall / best val loss / denormalised val RMSE.
+# Use the ΔRMSE% column to decide whether a larger batch matches the HPO B=2
+# reference before switching the 3-seed production run. Saves nothing.
+# ─────────────────────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+REPO="/scratch/um09/as1708/sst-forecasting"
+cd "$REPO"
+
+# ── Branch assertion (NO network on Gadi compute nodes) ───────────────────────
+PR_BRANCH="khaled-per-model-ar-files"
+echo "=== branch check $(date -Is) ==="
+CUR_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+echo "on branch: $CUR_BRANCH  sha: $(git rev-parse --short HEAD)"
+if [ "$CUR_BRANCH" != "$PR_BRANCH" ]; then
+    echo "[pbs] ERROR: working tree is on '$CUR_BRANCH', expected '$PR_BRANCH'."
+    exit 1
+fi
+echo "==="
+
+module purge
+module load python3/3.11.7
+source "$REPO/.venv/bin/activate"
+
+export CUDA_VISIBLE_DEVICES=0
+export CUDA_LAUNCH_BLOCKING=0
+export OMP_NUM_THREADS=4
+export MKL_NUM_THREADS=4
+export OPENBLAS_NUM_THREADS=4
+export NUMEXPR_NUM_THREADS=4
+export PYTHONUNBUFFERED=1
+export TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1
+
+echo "=== provenance $(date -Is) ==="
+echo "host:    $(hostname)"
+echo "pbs_job: ${PBS_JOBID:-none}"
+echo "branch:  $(git rev-parse --abbrev-ref HEAD 2>/dev/null)  sha: $(git rev-parse --short HEAD 2>/dev/null)"
+echo "==="
+
+# A100/H200 PyTorch flags (TF32 + cudnn autotuner)
+python - <<'PYEOF'
+import torch, sys
+torch.set_float32_matmul_precision("high")
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32       = True
+torch.backends.cudnn.benchmark        = True
+assert torch.cuda.is_available(), "CUDA not available"
+d = torch.cuda.get_device_properties(0)
+print(f"[pbs] GPU OK : {d.name}  VRAM={d.total_memory/1e9:.1f} GB")
+sys.exit(0)
+PYEOF
+
+LOG="$REPO/experiments/results/convlstm_bench_${PBS_JOBID}.log"
+
+numactl --localalloc \
+python -u scripts/bench_convlstm_batch.py --batches 2 16 32 \
+    2>&1 | tee "$LOG"
+
+echo "[pbs] Benchmark finished. Exit: $?"

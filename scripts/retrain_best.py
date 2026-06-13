@@ -318,9 +318,20 @@ def retrain_one(model_type: str, device: torch.device,
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(eff_seed)
 
-    batch_size = batch_size_override if batch_size_override is not None else config.get("batch_size", 8)
-    if batch_size_override is not None and batch_size_override != config.get("batch_size"):
-        print(f"  batch_size overridden: {config.get('batch_size')} → {batch_size}")
+    base_batch = config.get("batch_size", 8)
+    batch_size = batch_size_override if batch_size_override is not None else base_batch
+    # When the batch size is changed from the HPO value, the learning rate must
+    # be rescaled or the model undertrains (fewer, lower-noise steps per epoch).
+    # Adam tracks better with the square-root rule (Krizhevsky 2014; Hoffer
+    # et al. 2017) than SGD's linear rule (Goyal et al. 2017). NOTE: changing
+    # batch size CAN change the trained model — validate val quality vs the HPO
+    # B=base reference before treating a larger-batch model as equivalent.
+    learning_rate = config["learning_rate"]
+    if batch_size != base_batch:
+        lr_scale = (batch_size / base_batch) ** 0.5
+        learning_rate = learning_rate * lr_scale
+        print(f"  batch_size overridden: {base_batch} → {batch_size}  "
+              f"(√-scaled LR ×{lr_scale:.3g}: {config['learning_rate']:.2e} → {learning_rate:.2e})")
     use_cuda = (device.type == "cuda")
     # Overlap host-side batch assembly + H2D copy with GPU compute. The dataset
     # holds its field in RAM, so workers fork copy-on-write (no per-worker reload).
@@ -338,7 +349,7 @@ def retrain_one(model_type: str, device: torch.device,
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
     optimizer = optim.Adam(model.parameters(),
-                           lr=config["learning_rate"],
+                           lr=learning_rate,
                            weight_decay=config.get("weight_decay", 1e-4))
     criterion = AnomalyWeightedMSE(alpha=config.get("anomaly_alpha", 0.0))
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -428,9 +439,11 @@ def main():
     )
     parser.add_argument(
         "--batch-size", type=int, default=None,
-        help="Override the config batch_size. Useful when retraining on a GPU with "
-             "more VRAM than was used during HPO (e.g. H200 141 GB vs original run). "
-             "Does not affect model quality — only training throughput.",
+        help="Override the config batch_size (e.g. to use more of a large GPU). "
+             "The learning rate is automatically square-root-scaled to match. "
+             "NOTE: batch size CAN change the trained model (gradient noise / "
+             "generalization) — validate val quality against the HPO batch before "
+             "treating a larger-batch result as equivalent.",
     )
     args = parser.parse_args()
 
