@@ -1,0 +1,77 @@
+#!/bin/bash
+#PBS -N sstf_convlstm_seeds
+#PBS -P dx61
+#PBS -q dgxa100
+#PBS -l ncpus=16
+#PBS -l ngpus=1
+#PBS -l mem=64GB
+#PBS -l jobfs=20GB
+#PBS -l walltime=08:00:00
+#PBS -l storage=scratch/um09
+#PBS -j oe
+#PBS -o /scratch/um09/as1708/sst-forecasting/experiments/results/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ConvLSTM multi-seed retrain + AR rollout (seeds 1, 2, 3)
+#
+# Runs sequentially via run_seed_queue.py:
+#   retrain_best.py --models convlstm --seed N  ->  experiments/best_convlstm_seedN/
+#   run_ar_rollout.py --models convlstm --seed N -> experiments/ar_rollout/seedN/
+#
+# Queue: dgxa100 (A100 80 GB, dx61 project)
+# Estimated wall time: ~6 h for 3 × (retrain ~1.5h + rollout ~10min)
+# ─────────────────────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+REPO="/scratch/um09/as1708/sst-forecasting"
+cd "$REPO"
+
+module purge
+module load python3/3.11.7
+source "$REPO/.venv/bin/activate"
+
+# A100 opts
+export CUDA_VISIBLE_DEVICES=0
+export CUDA_LAUNCH_BLOCKING=0
+export CUDNN_BENCHMARK=1
+export OMP_NUM_THREADS=4
+export MKL_NUM_THREADS=4
+export PYTHONUNBUFFERED=1
+
+# TF32 / BF16 via torch flags (also set inside train_model, but belt-and-suspenders)
+export TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1
+
+echo "=== provenance $(date -Is) ==="
+echo "host:    $(hostname)"
+echo "job:     ${PBS_JOBID:-none}"
+echo "branch:  $(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+echo "sha:     $(git rev-parse HEAD 2>/dev/null)"
+echo "python:  $(python --version 2>&1)"
+echo "torch:   $(python -c 'import torch; print(torch.__version__)' 2>&1)"
+echo "gpu:     $(python -c 'import torch; print(torch.cuda.get_device_name(0))' 2>&1)"
+echo "==="
+
+# Sanity-check GPU
+python - <<'PYEOF'
+import torch, sys
+assert torch.cuda.is_available(), "CUDA not available"
+d = torch.cuda.get_device_properties(0)
+print(f"[pbs] GPU: {d.name}  VRAM={d.total_memory/1e9:.1f} GB")
+PYEOF
+
+LOG="$REPO/experiments/results/convlstm_seeds_${PBS_JOBID}.log"
+
+python -u scripts/run_seed_queue.py \
+    --models convlstm \
+    --seeds 1 2 3 \
+    2>&1 | tee "$LOG"
+
+echo "[pbs] Seed queue finished. Exit: $?"
+echo "[pbs] Outputs:"
+ls -lh "$REPO/experiments/best_convlstm_seed1/" 2>/dev/null || echo "  best_convlstm_seed1/ missing"
+ls -lh "$REPO/experiments/best_convlstm_seed2/" 2>/dev/null || echo "  best_convlstm_seed2/ missing"
+ls -lh "$REPO/experiments/best_convlstm_seed3/" 2>/dev/null || echo "  best_convlstm_seed3/ missing"
+ls -lh "$REPO/experiments/ar_rollout/seed1/"    2>/dev/null || echo "  ar_rollout/seed1/ missing"
+ls -lh "$REPO/experiments/ar_rollout/seed2/"    2>/dev/null || echo "  ar_rollout/seed2/ missing"
+ls -lh "$REPO/experiments/ar_rollout/seed3/"    2>/dev/null || echo "  ar_rollout/seed3/ missing"
