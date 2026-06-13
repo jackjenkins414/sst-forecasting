@@ -1,6 +1,6 @@
 """
 Presentation extras queue:
-  1. Retrain + report Ayush's best Patch Transformer (batch forced to 8 for 12GB).
+  1. Retrain + report Patch Transformer.
   2. alpha=0 (plain-MSE) point for the anomaly-tuned models, for the fair
      "no anomaly vs tuned alpha*" comparison. Flat Transformer already trained at
      alpha=0, so it's excluded. ConvLSTM (slow B=2) runs last.
