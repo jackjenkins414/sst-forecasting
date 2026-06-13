@@ -6,7 +6,7 @@
 #PBS -l ngpus=1
 #PBS -l mem=90GB
 #PBS -l jobfs=50GB
-#PBS -l walltime=04:00:00
+#PBS -l walltime=08:00:00
 #PBS -l storage=scratch/um09
 #PBS -j oe
 #PBS -o /scratch/um09/as1708/sst-forecasting/experiments/results/
@@ -26,21 +26,27 @@
 #
 # Queue: gpuhopper (H200 SXM5 141 GB HBM3e, dx61 project)
 # ncpus/GPU ratio: 12 (mandatory for gpuhopper)
-# Estimated wall time: ~3.5 h for 3 × (retrain ~60 min + rollout ~5 min)
-#   H200 vs A100 speedup: ~2.4× (HBM bandwidth 4.8 TB/s vs 2.0 TB/s)
-#   Workload is memory-bandwidth bound at batch_size=2
-#   batch_size=32 override: 16× fewer batches/epoch → GPU util ~60-80% vs <5%
-#     VRAM estimate for BPTT L=90, hidden=[64,64]: ~67 GB at B=32 (well within 141 GB)
-#     Expected epoch time: ~2-3 min (was ~13 min at B=2)
-#     Expected total: ~3 seeds × 11 epochs × 3 min + rollout ≈ 1.5-2 h
 #
-# H200 optimisations enabled:
-#   BF16 AMP     : enabled in train_model() via torch.autocast (no GradScaler needed)
-#   TF32         : set via Python torch.backends flags — free speedup on FP32 matmuls
+# Batch size: HPO-selected B=2 (config default — NOT overridden). Profiling
+# showed the earlier B=32 override gave almost no speedup AND deviated from the
+# HPO-optimal model. The real bottleneck was NOT compute — it was synchronous
+# zarr I/O: the store is chunked (1,H,W) so a lazy __getitem__ decompressed 90+
+# chunks per sample on the main thread (num_workers=0). Fixed in the code:
+#   - SstWindowDataset now preloads the full 277 MB field into RAM (no per-item
+#     disk reads); __getitem__ is a pure in-RAM slice
+#   - DataLoader runs num_workers=4 + pin_memory (overlap H2D with compute)
+#   - train_model() uses BF16 autocast on CUDA (H200 tensor cores; no GradScaler)
+#   - per-step loss.item() host sync removed (on-device accumulation)
+# These keep the model HPO-faithful (B=2) while removing the I/O / FP32 stalls.
+#
+# Walltime: 8 h — generous headroom for 3 sequential seeds at B=2 until the new
+# epoch time is measured in-run; trim on a later submission once confirmed.
+#
+# Other H200 flags:
+#   TF32         : set via Python torch.backends flags — free on FP32 matmuls
 #   cudnn.bench  : autotuner picks best kernel once then reuses
 #   numactl      : --localalloc pins host tensors to local NUMA node
-#   pin_memory   : enabled in DataLoader when CUDA detected (in dataloaders.py)
-#   mem=90GB     : sufficient for L=90 context preload (276 MB) + activations
+#   mem=90GB     : full field preload (277 MB) + activations + worker COW copies
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -142,7 +148,6 @@ numactl --localalloc \
 python -u scripts/run_seed_queue.py \
     --models convlstm \
     --seeds 1 2 3 \
-    --batch-size 32 \
     2>&1 | tee "$LOG"
 
 echo "[pbs] Seed queue finished. Exit: $?"

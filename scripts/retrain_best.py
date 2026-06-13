@@ -321,11 +321,17 @@ def retrain_one(model_type: str, device: torch.device,
     batch_size = batch_size_override if batch_size_override is not None else config.get("batch_size", 8)
     if batch_size_override is not None and batch_size_override != config.get("batch_size"):
         print(f"  batch_size overridden: {config.get('batch_size')} → {batch_size}")
+    use_cuda = (device.type == "cuda")
+    # Overlap host-side batch assembly + H2D copy with GPU compute. The dataset
+    # holds its field in RAM, so workers fork copy-on-write (no per-worker reload).
+    n_workers = 4 if use_cuda else 0
     train_loader, val_loader, test_loader = create_dataloaders(
         zarr_path=ZARR_PATH,
         context_len=config["context_len"],
         horizon=config["horizon"],
         batch_size=batch_size,
+        num_workers=n_workers,
+        pin_memory=use_cuda,
     )
 
     model = MODEL_BUILDERS[model_type](config, H, W).to(device)
@@ -343,7 +349,8 @@ def retrain_one(model_type: str, device: torch.device,
     )
     land_mask_t = torch.from_numpy(land_mask).to(device)
 
-    print(f"  Training {model_type} ({n_params:,} params) on {device}...")
+    print(f"  Training {model_type} ({n_params:,} params) on {device}"
+          f"{' [BF16 AMP]' if use_cuda else ''}...")
     train_losses, val_losses = train_model(
         model=model, train_loader=train_loader, val_loader=val_loader,
         criterion=criterion, optimizer=optimizer, device=device,
@@ -352,6 +359,7 @@ def retrain_one(model_type: str, device: torch.device,
         grad_clip=config.get("grad_clip", 1.0),
         scheduler=scheduler,
         early_stop_patience=config.get("early_stop_patience", 5),
+        use_amp=use_cuda,
     )
 
     print(f"  Evaluating on test set...")
