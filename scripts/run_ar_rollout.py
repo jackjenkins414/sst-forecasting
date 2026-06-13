@@ -255,11 +255,15 @@ def main():
         sk = [skill_score(per_day[h], clim_rmse[h])
               for h in range(args.max_horizon)]
         skill_results[mt] = sk
-        # Useful horizon: largest day where skill > 0
+        # Useful horizon: last day before skill first drops to <= 0.
+        # We still roll out the full max_horizon so the skill curve in
+        # the JSON / plot remains complete; this is purely a summary number.
         useful_day = 0
         for h, v in enumerate(sk):
             if v > 0:
                 useful_day = h + 1   # 1-indexed
+            else:
+                break
         useful[mt] = useful_day
         print(f"  day-1 RMSE: {per_day[0]:.3f}  |  "
               f"day-{args.max_horizon} RMSE: {per_day[-1]:.3f}")

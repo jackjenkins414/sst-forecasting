@@ -104,6 +104,22 @@ def stack_per_day(arrays: list[list[float]]) -> np.ndarray:
     return np.stack([np.asarray(a, dtype=float) for a in arrays], axis=0)
 
 
+def useful_horizon_from_skill(skill: list[float]) -> int:
+    """Last day before skill first drops to <= 0 (1-indexed).
+
+    This is the first-crossing definition. Wobbles back into positive skill
+    after the initial crossing are ignored, which keeps the summary number
+    consistent across noisy seeds.
+    """
+    useful_day = 0
+    for h, v in enumerate(skill):
+        if v > 0:
+            useful_day = h + 1
+        else:
+            break
+    return useful_day
+
+
 def aggregate_short_horizon(model: str, summaries: list[tuple[int, Path]]) -> dict:
     rmse_steps  = []
     skill_steps = []
@@ -152,14 +168,15 @@ def aggregate_ar(model: str, ar_dirs: list[tuple[int, Path]]) -> dict:
         if per_model.exists():
             rmse  = json.load(open(per_model))
             skill = json.load(open(d / f"skill_vs_climatology_{model}.json"))
-            u     = json.load(open(d / f"useful_horizon_{model}.json"))
         else:
             rmse  = json.load(open(d / "rmse_per_day.json"))
             skill = json.load(open(d / "skill_vs_climatology.json"))
-            u     = json.load(open(d / "useful_horizon.json"))
         rmse_list.append(rmse[model])
         skill_list.append(skill[model])
-        useful.append(u.get(model, 0))
+        # Derive useful horizon from the saved skill curve so the
+        # first-crossing definition is applied consistently, regardless of
+        # when the underlying rollout was run.
+        useful.append(useful_horizon_from_skill(skill[model]))
         # Baselines are deterministic but we average defensively
         if pers_ref is None:
             pers_ref = rmse["persistence"]
