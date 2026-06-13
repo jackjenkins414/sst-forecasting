@@ -269,10 +269,21 @@ def main():
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    # --- Save artifacts ---
-    json.dump(results,       open(out_dir / "rmse_per_day.json",        "w"), indent=2)
-    json.dump(skill_results, open(out_dir / "skill_vs_climatology.json","w"), indent=2)
-    json.dump(useful,        open(out_dir / "useful_horizon.json",       "w"), indent=2)
+    # --- Save artifacts: one file per model. Avoids the overwrite bug we had
+    # when the same seed dir was reused by sequential single-model calls.
+    # Baselines are deterministic and stored alongside each model's data so
+    # any per-model file is self-contained.
+    for mt in args.models:
+        if mt not in results:   # may have been skipped on import/load error
+            continue
+        json.dump({"persistence": results["persistence"],
+                   "climatology": results["climatology"],
+                   mt:           results[mt]},
+                  open(out_dir / f"rmse_per_day_{mt}.json", "w"), indent=2)
+        json.dump({mt: skill_results[mt]},
+                  open(out_dir / f"skill_vs_climatology_{mt}.json", "w"), indent=2)
+        json.dump({mt: useful[mt]},
+                  open(out_dir / f"useful_horizon_{mt}.json", "w"), indent=2)
 
     plot_ar(results, skill_results, useful, args.max_horizon,
             out_dir / "ar_long_horizon.png")
