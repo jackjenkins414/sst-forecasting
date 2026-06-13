@@ -27,6 +27,7 @@ sys.path.append(str(PROJECT_ROOT))
 
 import numpy as np
 import torch
+import torch._dynamo            # for torch._dynamo.config.suppress_errors
 import torch.optim as optim
 import zarr
 
@@ -359,7 +360,6 @@ def retrain_one(model_type: str, device: torch.device,
     # to eager automatically (with a warning) so the deliverable never breaks.
     if use_cuda:
         try:
-            import torch._dynamo
             torch._dynamo.config.suppress_errors = True
             model = torch.compile(model)
             print("  torch.compile: attempting (Triton/CUDA; auto-falls back to "
