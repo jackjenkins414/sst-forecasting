@@ -70,8 +70,11 @@ The models read a processed **Zarr store** at
 gitignored because it is too large for version control, so it must be present
 locally before training. The store must contain:
 
-- `sst_norm` — z-scored daily anomaly field, shape `(time, 81, 121)`, land cells as NaN
-- `time` — int64 days since `1970-01-01`
+- `sst_norm` — z-scored daily anomaly field, shape `(time, 81, 121)`, land cells as NaN — read by the data loaders
+- `time` — int64 days since `1970-01-01` — read by the data loaders
+- `land_mask` — boolean `(81, 121)` ocean mask — read by the evaluation and AR-rollout scripts
+- attrs `norm_mean`, `norm_std` — z-score statistics for denormalisation to °C — read by the evaluation and AR-rollout scripts
+- `climatology` `(366, 81, 121)`, plus `sst`, `sst_anom`, `lat`, `lon` — present in a complete store and used by the data-validation and figure scripts
 
 Splits are assigned chronologically by date (`src/data/splits.py`): train
 1981-09-01 → 1995-12-31, validation 1996-01-01 → 1998-12-31, test 1999-01-01 →
