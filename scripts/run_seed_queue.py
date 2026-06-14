@@ -51,6 +51,9 @@ def main():
                         help="Only retrain; skip the AR rollout step.")
     parser.add_argument("--skip-retrain", action="store_true",
                         help="Only run AR rollout; assume checkpoints already exist.")
+    parser.add_argument("--batch-size", type=int, default=None,
+                        help="Override config batch_size for retrain step "
+                             "(e.g. 32 on H200 vs HPO's batch_size=2).")
     args = parser.parse_args()
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
 
@@ -61,9 +64,11 @@ def main():
         for s in args.seeds:
             label_base = f"{m} seed={s}"
             if not args.skip_retrain:
-                ok = run([py, "-u", "scripts/retrain_best.py",
-                         "--models", m, "--seed", str(s)],
-                        f"retrain {label_base}")
+                retrain_cmd = [py, "-u", "scripts/retrain_best.py",
+                               "--models", m, "--seed", str(s)]
+                if args.batch_size is not None:
+                    retrain_cmd += ["--batch-size", str(args.batch_size)]
+                ok = run(retrain_cmd, f"retrain {label_base}")
                 if not ok and not args.skip_rollout:
                     log(f"skipping rollout for {label_base} (retrain failed)")
                     continue

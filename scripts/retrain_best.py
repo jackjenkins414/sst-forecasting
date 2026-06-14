@@ -27,6 +27,7 @@ sys.path.append(str(PROJECT_ROOT))
 
 import numpy as np
 import torch
+import torch._dynamo            # for torch._dynamo.config.suppress_errors
 import torch.optim as optim
 import zarr
 
@@ -106,7 +107,7 @@ def _build_informer(config, H, W):
 
 
 def _build_convlstm(config, H, W):
-    from src.sst_forecasting.models.convlstm import SpatialConvLSTM
+    from src.models.convlstm import SpatialConvLSTM
     hidden_channels = config.get("hidden_channels") or \
                       [config["hidden_dim"]] * config["n_layers"]
     return SpatialConvLSTM(
@@ -118,13 +119,13 @@ def _build_convlstm(config, H, W):
 
 
 def _build_transformer(config, H, W):
-    from src.sst_forecasting.models.transformer import SpatialFlatTransformer
+    from src.models.transformer import SstFlatTransformer as SpatialFlatTransformer
     return SpatialFlatTransformer(
-        H=H, W=W,
-        context_len=config["context_len"], horizon=config["horizon"],
-        d_model=config["d_model"], nhead=config["n_heads"],
-        num_encoder_layers=config["n_layers"],
-        dim_feedforward=config["ffn_dim"],
+        height=H, width=W,
+        seq_len=config["context_len"], horizon=config["horizon"],
+        d_model=config["d_model"], n_heads=config["n_heads"],
+        n_blocks=config["n_layers"],
+        d_ff=config["ffn_dim"],
         dropout=config["dropout"],
     )
 
@@ -289,7 +290,8 @@ def idx_to_date(zarr_root, window_start_idx: int, context_len: int) -> str:
 
 def retrain_one(model_type: str, device: torch.device,
                 zarr_root, norm_mean: float, norm_std: float,
-                land_mask: np.ndarray, seed: int | None = None):
+                land_mask: np.ndarray, seed: int | None = None,
+                batch_size_override: int | None = None):
     H, W = land_mask.shape
     # seed=None -> canonical dir (backward compatible); explicit seed -> suffix.
     suffix = f"_seed{seed}" if seed is not None else ""
@@ -317,19 +319,56 @@ def retrain_one(model_type: str, device: torch.device,
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(eff_seed)
 
-    batch_size = config.get("batch_size", 8)
+    base_batch = config.get("batch_size", 8)
+    batch_size = batch_size_override if batch_size_override is not None else base_batch
+    # When the batch size is changed from the HPO value, the learning rate must
+    # be rescaled or the model undertrains (fewer, lower-noise steps per epoch).
+    # Adam tracks better with the square-root rule (Krizhevsky 2014; Hoffer
+    # et al. 2017) than SGD's linear rule (Goyal et al. 2017). NOTE: changing
+    # batch size CAN change the trained model — validate val quality vs the HPO
+    # B=base reference before treating a larger-batch model as equivalent.
+    learning_rate = config["learning_rate"]
+    if batch_size != base_batch:
+        lr_scale = (batch_size / base_batch) ** 0.5
+        learning_rate = learning_rate * lr_scale
+        print(f"  batch_size overridden: {base_batch} → {batch_size}  "
+              f"(√-scaled LR ×{lr_scale:.3g}: {config['learning_rate']:.2e} → {learning_rate:.2e})")
+    use_cuda = (device.type == "cuda")
+    # Overlap host-side batch assembly + H2D copy with GPU compute. The dataset
+    # holds its field in RAM, so workers fork copy-on-write (no per-worker reload).
+    n_workers = 4 if use_cuda else 0
     train_loader, val_loader, test_loader = create_dataloaders(
         zarr_path=ZARR_PATH,
         context_len=config["context_len"],
         horizon=config["horizon"],
         batch_size=batch_size,
+        num_workers=n_workers,
+        pin_memory=use_cuda,
     )
 
     model = MODEL_BUILDERS[model_type](config, H, W).to(device)
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
+    # torch.compile fuses the ConvLSTM's per-timestep gate elementwise ops and
+    # collapses the ~hundreds of tiny eager kernel launches of the 90-step
+    # recurrence into far fewer — the dominant cost at the HPO batch size B=2
+    # (dispatch/launch-bound, not FLOP-bound). Same weights/maths, no command
+    # change. On CUDA, inductor uses Triton kernels (no C++/Python.h needed).
+    #
+    # Compilation is LAZY (triggered on the first forward), so a backend failure
+    # would otherwise throw mid-training; suppress_errors makes dynamo fall back
+    # to eager automatically (with a warning) so the deliverable never breaks.
+    if use_cuda:
+        try:
+            torch._dynamo.config.suppress_errors = True
+            model = torch.compile(model)
+            print("  torch.compile: attempting (Triton/CUDA; auto-falls back to "
+                  "eager if unsupported; first step pays a one-time compile cost)")
+        except Exception as e:
+            print(f"  torch.compile unavailable ({e}); running eager")
+
     optimizer = optim.Adam(model.parameters(),
-                           lr=config["learning_rate"],
+                           lr=learning_rate,
                            weight_decay=config.get("weight_decay", 1e-4))
     criterion = AnomalyWeightedMSE(alpha=config.get("anomaly_alpha", 0.0))
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -340,7 +379,8 @@ def retrain_one(model_type: str, device: torch.device,
     )
     land_mask_t = torch.from_numpy(land_mask).to(device)
 
-    print(f"  Training {model_type} ({n_params:,} params) on {device}...")
+    print(f"  Training {model_type} ({n_params:,} params) on {device}"
+          f"{' [BF16 AMP]' if use_cuda else ''}...")
     train_losses, val_losses = train_model(
         model=model, train_loader=train_loader, val_loader=val_loader,
         criterion=criterion, optimizer=optimizer, device=device,
@@ -349,6 +389,7 @@ def retrain_one(model_type: str, device: torch.device,
         grad_clip=config.get("grad_clip", 1.0),
         scheduler=scheduler,
         early_stop_patience=config.get("early_stop_patience", 5),
+        use_amp=use_cuda,
     )
 
     print(f"  Evaluating on test set...")
@@ -369,7 +410,10 @@ def retrain_one(model_type: str, device: torch.device,
     # Save all artifacts
     np.save(save_dir / "predictions.npy", preds)
     np.save(save_dir / "targets.npy",     targets)
-    torch.save(model.state_dict(), save_dir / "model.pt")
+    # Unwrap torch.compile (OptimizedModule) so the saved keys have no
+    # "_orig_mod." prefix and load cleanly into a plain model in run_ar_rollout.
+    save_model = getattr(model, "_orig_mod", model)
+    torch.save(save_model.state_dict(), save_dir / "model.pt")
 
     with open(save_dir / "loss_curves.json", "w") as f:
         json.dump({"train": train_losses, "val": val_losses}, f, indent=2)
@@ -415,6 +459,14 @@ def main():
              "experiments/best_<model>/. Pass an explicit int (e.g. 1, 2, 3) for "
              "variance studies — outputs land in experiments/best_<model>_seed<N>/.",
     )
+    parser.add_argument(
+        "--batch-size", type=int, default=None,
+        help="Override the config batch_size (e.g. to use more of a large GPU). "
+             "The learning rate is automatically square-root-scaled to match. "
+             "NOTE: batch size CAN change the trained model (gradient noise / "
+             "generalization) — validate val quality against the HPO batch before "
+             "treating a larger-batch result as equivalent.",
+    )
     args = parser.parse_args()
 
     root         = zarr.open_group(str(ZARR_PATH), mode="r")
@@ -435,7 +487,8 @@ def main():
         try:
             rmse = retrain_one(model_type, device, root,
                                norm_mean, norm_std, land_mask,
-                               seed=args.seed)
+                               seed=args.seed,
+                               batch_size_override=args.batch_size)
             results[model_type] = rmse
         except SystemExit as e:
             print(f"  Skipped: {e}")

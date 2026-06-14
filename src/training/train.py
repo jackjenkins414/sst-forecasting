@@ -15,6 +15,7 @@ def train_model(
     scheduler=None,
     early_stop_patience: int | None = None,
     epoch_callback=None,
+    use_amp: bool = False,
 ):
     """
     Train a PyTorch model and evaluate validation loss after each epoch.
@@ -33,48 +34,58 @@ def train_model(
     best_state    = None
     epochs_no_improve = 0
 
+    # BF16 autocast on CUDA: lets H200 tensor cores run the convs at ~tensor-core
+    # throughput. BF16 has the same exponent range as FP32 so no GradScaler is
+    # needed (unlike FP16). A no-op when use_amp=False or on CPU.
+    amp_enabled = bool(use_amp) and torch.device(device).type == "cuda"
+
+    def _autocast():
+        return torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled)
+
     for epoch in range(num_epochs):
         model.train()
-        train_loss = 0.0
+        # Accumulate the loss on-device to avoid a host sync (loss.item()) every
+        # batch — at B=2 that was thousands of syncs/epoch serialising the pipe.
+        train_loss_sum = torch.zeros((), device=device)
         for batch_X, batch_y in train_loader:
-            batch_X = batch_X.to(device)
-            batch_y = batch_y.to(device)
+            batch_X = batch_X.to(device, non_blocking=True)
+            batch_y = batch_y.to(device, non_blocking=True)
 
-            optimizer.zero_grad()
-            preds = model(batch_X)
-
-            if land_mask is not None:
-                mask = land_mask.expand_as(preds)
-                loss = criterion(preds[mask], batch_y[mask])
-            else:
-                loss = criterion(preds, batch_y)
-
-            loss.backward()
-            if grad_clip is not None:
-                nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-            optimizer.step()
-
-            train_loss += loss.item() * batch_X.size(0)
-
-        train_loss = train_loss / len(train_loader.dataset)
-
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for batch_X, batch_y in val_loader:
-                batch_X = batch_X.to(device)
-                batch_y = batch_y.to(device)
+            optimizer.zero_grad(set_to_none=True)
+            with _autocast():
                 preds = model(batch_X)
-
                 if land_mask is not None:
                     mask = land_mask.expand_as(preds)
                     loss = criterion(preds[mask], batch_y[mask])
                 else:
                     loss = criterion(preds, batch_y)
 
-                val_loss += loss.item() * batch_X.size(0)
+            loss.backward()
+            if grad_clip is not None:
+                nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+            optimizer.step()
 
-        val_loss = val_loss / len(val_loader.dataset)
+            train_loss_sum += loss.detach() * batch_X.size(0)
+
+        train_loss = (train_loss_sum / len(train_loader.dataset)).item()
+
+        model.eval()
+        val_loss_sum = torch.zeros((), device=device)
+        with torch.no_grad():
+            for batch_X, batch_y in val_loader:
+                batch_X = batch_X.to(device, non_blocking=True)
+                batch_y = batch_y.to(device, non_blocking=True)
+                with _autocast():
+                    preds = model(batch_X)
+                    if land_mask is not None:
+                        mask = land_mask.expand_as(preds)
+                        loss = criterion(preds[mask], batch_y[mask])
+                    else:
+                        loss = criterion(preds, batch_y)
+
+                val_loss_sum += loss.detach() * batch_X.size(0)
+
+        val_loss = (val_loss_sum / len(val_loader.dataset)).item()
 
         if scheduler is not None:
             scheduler.step(val_loss)

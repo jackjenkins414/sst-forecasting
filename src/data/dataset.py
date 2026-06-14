@@ -8,6 +8,24 @@ from torch.utils.data import Dataset
 
 from src.data.splits import date_mask
 
+# Cache of the preloaded, NaN-cleaned sst_norm field keyed by resolved store
+# path. The train/val/test splits all read the SAME array (only their index
+# ranges differ), so without this each split would re-decompress all ~7000
+# (1,H,W) chunks (~70 s each). Loaded once, shared read-only across splits.
+_FIELD_CACHE: dict[str, np.ndarray] = {}
+
+
+def _load_field(zarr_path: Path) -> np.ndarray:
+    key = str(zarr_path.resolve())
+    field = _FIELD_CACHE.get(key)
+    if field is None:
+        root = zarr.open_group(str(zarr_path), mode="r")
+        field = np.nan_to_num(
+            np.asarray(root["sst_norm"][:], dtype=np.float32), nan=0.0
+        )
+        _FIELD_CACHE[key] = field
+    return field
+
 
 class SstWindowDataset(Dataset):
     """
@@ -40,10 +58,19 @@ class SstWindowDataset(Dataset):
         if not zarr_path.exists():
             raise FileNotFoundError(f"Zarr store not found: {zarr_path}")
 
-        root = zarr.open_group(str(zarr_path), mode="r")
-        self._data = root["sst_norm"]
+        # Preload the whole normalised field into RAM once (shared across
+        # splits via _FIELD_CACHE), with land-NaN already replaced by 0.0. The
+        # store is chunked (1, H, W) — one chunk per timestep — so a lazy
+        # __getitem__ would decompress `context_len` (+ horizon) chunks per
+        # sample on the main thread (num_workers=0), making training I/O-bound
+        # on synchronous zarr reads. The full array is only ~277 MB (float32),
+        # so holding it resident is trivial and turns __getitem__ into a pure
+        # in-RAM slice. Numerically identical to the previous per-item
+        # nan_to_num(..., nan=0.0).
+        self._data = _load_field(zarr_path)
 
         # Convert stored int64 days-since-epoch to a DatetimeIndex
+        root = zarr.open_group(str(zarr_path), mode="r")
         time_days = root["time"][:]
         epoch = pd.Timestamp("1970-01-01")
         time_pd = pd.DatetimeIndex(
@@ -72,21 +99,15 @@ class SstWindowDataset(Dataset):
     def __getitem__(self, idx):
         t0 = self._start_idx + idx
 
-        x_raw = np.asarray(
-            self._data[t0 : t0 + self.context_len],
-            dtype=np.float32,
-        )
-        y_raw = np.asarray(
-            self._data[t0 + self.context_len : t0 + self.context_len + self.horizon],
-            dtype=np.float32,
-        )
+        # Pure in-RAM slices (NaN already cleaned in __init__). Copy so the
+        # returned tensors own their memory (safe across DataLoader workers).
+        x_raw = self._data[t0 : t0 + self.context_len].copy()
+        y_raw = self._data[
+            t0 + self.context_len : t0 + self.context_len + self.horizon
+        ].copy()
 
         x = torch.from_numpy(x_raw)
         y = torch.from_numpy(y_raw)
-
-        # Replace land NaN with 0.0
-        x = torch.nan_to_num(x, nan=0.0)
-        y = torch.nan_to_num(y, nan=0.0)
 
         # Add channel dimension to x: (L, H, W) -> (L, 1, H, W)
         x = x.unsqueeze(1)
