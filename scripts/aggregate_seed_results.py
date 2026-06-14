@@ -22,7 +22,7 @@ Usage
         # also pull experiments/best_<model>/ (seed-42 canonical) into the stats
 
 A model is silently skipped if it has fewer than --min-seeds seeded runs
-(default 2 — std is undefined for n=1).
+(default 2 - std is undefined for n=1).
 """
 
 import argparse
@@ -55,10 +55,7 @@ DISPLAY = {
 
 SEED_DIR_RE = re.compile(r"best_(?P<model>.+)_seed(?P<seed>\d+)$")
 
-
-# ---------------------------------------------------------------------------
 # Discovery
-# ---------------------------------------------------------------------------
 
 def find_seeded_summaries(model: str, include_canonical: bool) -> list[tuple[int, Path]]:
     """Return [(seed, summary.json path)] for a given model."""
@@ -72,7 +69,6 @@ def find_seeded_summaries(model: str, include_canonical: bool) -> list[tuple[int
         if canonical.exists():
             hits.append((42, canonical))
     return hits
-
 
 def find_seeded_ar(model: str) -> list[tuple[int, Path]]:
     """Return [(seed, seed_dir)] for AR rollout outputs that include this model.
@@ -95,14 +91,10 @@ def find_seeded_ar(model: str) -> list[tuple[int, Path]]:
             hits.append((int(m.group(1)), d))
     return hits
 
-
-# ---------------------------------------------------------------------------
 # Aggregation
-# ---------------------------------------------------------------------------
 
 def stack_per_day(arrays: list[list[float]]) -> np.ndarray:
     return np.stack([np.asarray(a, dtype=float) for a in arrays], axis=0)
-
 
 def useful_horizon_from_skill(skill: list[float]) -> int:
     """Last day before skill first drops to <= 0 (1-indexed).
@@ -118,7 +110,6 @@ def useful_horizon_from_skill(skill: list[float]) -> int:
         else:
             break
     return useful_day
-
 
 def aggregate_short_horizon(model: str, summaries: list[tuple[int, Path]]) -> dict:
     rmse_steps  = []
@@ -154,7 +145,6 @@ def aggregate_short_horizon(model: str, summaries: list[tuple[int, Path]]) -> di
         "mean_skill_mean": float(np.mean(mean_skill)),
         "mean_skill_std":  float(np.std(mean_skill, ddof=1)) if len(mean_skill) > 1 else 0.0,
     }
-
 
 def aggregate_ar(model: str, ar_dirs: list[tuple[int, Path]]) -> dict:
     rmse_list  = []
@@ -212,10 +202,7 @@ def aggregate_ar(model: str, ar_dirs: list[tuple[int, Path]]) -> dict:
         "climatology_rmse": clim_ref,
     }
 
-
-# ---------------------------------------------------------------------------
 # Plot + table
-# ---------------------------------------------------------------------------
 
 def plot_ar_mean(ar_stats: dict, out_path: Path):
     """Mean curves with shaded +/- std bands, one panel for RMSE, one for skill."""
@@ -257,12 +244,11 @@ def plot_ar_mean(ar_stats: dict, out_path: Path):
     axR.set_title("Skill score (mean across seeds)")
     axR.legend(fontsize=9, loc="upper right"); axR.grid(alpha=0.3)
 
-    fig.suptitle("Autoregressive rollout — averaged over multi-seed retraining",
+    fig.suptitle("Autoregressive rollout - averaged over multi-seed retraining",
                  fontsize=13, fontweight="bold", y=1.02)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close()
-
 
 def write_results_table(short_stats: dict, ar_stats: dict, out_path: Path):
     lines = []
@@ -294,10 +280,7 @@ def write_results_table(short_stats: dict, ar_stats: dict, out_path: Path):
 
     out_path.write_text("\n".join(lines) + "\n")
 
-
-# ---------------------------------------------------------------------------
 # Main
-# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser()
@@ -346,7 +329,6 @@ def main():
         print(f"\nWritten to {OUT_DIR}/")
     else:
         print("\nNothing to aggregate yet.")
-
 
 if __name__ == "__main__":
     main()

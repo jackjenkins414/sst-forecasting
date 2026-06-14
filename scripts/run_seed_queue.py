@@ -24,13 +24,11 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 LOG_PATH     = PROJECT_ROOT / "experiments" / "seed_queue_log.txt"
 
-
 def log(msg: str):
     line = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
     print(line, flush=True)
     with open(LOG_PATH, "a") as f:
         f.write(line + "\n")
-
 
 def run(cmd, label: str) -> bool:
     log(f"START  {label}")
@@ -39,7 +37,6 @@ def run(cmd, label: str) -> bool:
     dt = (time.time() - t0) / 60
     log(f"{'DONE ' if rc == 0 else 'FAILED'} {label} ({dt:.1f} min, exit {rc})")
     return rc == 0
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -78,7 +75,6 @@ def main():
                     f"rollout {label_base}")
 
     log("=== seed queue complete ===")
-
 
 if __name__ == "__main__":
     main()

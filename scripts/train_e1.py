@@ -72,7 +72,6 @@ from sst_forecasting.utils.metrics import rmse as rmse_metric
 # Argument parsing
 # ─────────────────────────────────────────────────────────────────────────────
 
-
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Train E1 LSTM or Transformer on Coral Sea OISST."
@@ -136,11 +135,9 @@ def _parse_args() -> argparse.Namespace:
                    help="Directory for checkpoints and metrics.")
     return p.parse_args()
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
-
 
 def _git_sha(repo: Path) -> str:
     try:
@@ -149,7 +146,6 @@ def _git_sha(repo: Path) -> str:
         ).strip()
     except Exception:
         return "unknown"
-
 
 def _build_model(args: argparse.Namespace, H: int, W: int) -> nn.Module:
     if args.model == "lstm":
@@ -183,7 +179,6 @@ def _build_model(args: argparse.Namespace, H: int, W: int) -> nn.Module:
             dropout=args.dropout,
         )
 
-
 def _make_loader(
     zarr_path: str, split: str, args: argparse.Namespace, max_windows: int
 ) -> DataLoader:
@@ -204,11 +199,9 @@ def _make_loader(
         drop_last=False,
     )
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Train / val loops
 # ─────────────────────────────────────────────────────────────────────────────
-
 
 def _epoch(
     model: nn.Module,
@@ -250,11 +243,9 @@ def _epoch(
 
     return total_loss / max(n_batches, 1)
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
-
 
 def main() -> None:
     args = _parse_args()
@@ -459,7 +450,6 @@ def main() -> None:
     with open(out_dir / "run.yaml", "w") as f:
         yaml.dump(provenance, f, default_flow_style=False)
     print(f"[train_e1] run.yaml written to {out_dir / 'run.yaml'}")
-
 
 if __name__ == "__main__":
     main()

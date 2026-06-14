@@ -15,7 +15,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BEST_DIR     = PROJECT_ROOT / "experiments"
 PATTERN      = re.compile(r"best_(.+)_seed(\d+)$")
 
-
 def main():
     fixed = 0
     skipped = 0
@@ -38,7 +37,6 @@ def main():
         print(f"  {d.name}: random_seed {old} -> {seed}")
         fixed += 1
     print(f"\nFixed {fixed} config(s), {skipped} already correct.")
-
 
 if __name__ == "__main__":
     main()

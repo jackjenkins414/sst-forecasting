@@ -3,11 +3,11 @@ Compare all experiment runs visually.
 
 Reads every run_*/config.json + metrics.json and produces two figures:
 
-  Figure 1 — Hyperparameter vs RMSE scatter plots
+  Figure 1 - Hyperparameter vs RMSE scatter plots
       One subplot per searchable hyperparameter.  Each point is one run,
       coloured by model type.
 
-  Figure 2 — RMSE-per-step curves (overlaid)
+  Figure 2 - RMSE-per-step curves (overlaid)
       Background lines coloured by model type; top-5 runs highlighted.
       Persistence baseline shown for reference.
       A second panel shows skill-score curves overlaid the same way.
@@ -36,7 +36,7 @@ RESULTS_DIR = PROJECT_ROOT / "experiments/results"
 HORIZON     = 7
 DAYS        = np.arange(1, HORIZON + 1)
 
-# Colour per model architecture — add entries here as new models are registered
+# Colour per model architecture - add entries here as new models are registered
 MODEL_COLOURS = {
     "tubelet":     "#4e79a7",  # blue
     "lstm":        "#f28e2b",  # orange
@@ -47,7 +47,6 @@ MODEL_COLOURS = {
     "patch_transformer": "#edc948",  # yellow
     "unknown":     "#9c9c9c",  # grey
 }
-
 
 def _infer_model_type(config: dict) -> str:
     """Identify model for runs predating the model_type key (old Tubelet/Transformer)."""
@@ -67,7 +66,7 @@ def _infer_model_type(config: dict) -> str:
         return "transformer"
     return "unknown"
 
-# Hyperparameters to scatter — common and model-specific.
+# Hyperparameters to scatter - common and model-specific.
 # Runs that don't have a key just get skipped in that subplot.
 PARAMS = {
     # shared
@@ -86,10 +85,7 @@ PARAMS = {
     "kernel_size":   "Conv kernel size",
 }
 
-
-# ---------------------------------------------------------------------------
 # Data loading
-# ---------------------------------------------------------------------------
 
 def load_runs() -> list[dict]:
     runs = []
@@ -135,10 +131,7 @@ def load_runs() -> list[dict]:
     runs.sort(key=lambda r: r["mean_rmse"])
     return runs
 
-
-# ---------------------------------------------------------------------------
 # Figure 1: hyperparameter scatter plots
-# ---------------------------------------------------------------------------
 
 def plot_param_scatter(runs: list[dict], save_path: Path):
     # Only show subplots where at least one run has the param
@@ -147,13 +140,13 @@ def plot_param_scatter(runs: list[dict], save_path: Path):
         if any(r["config"].get(k) is not None for r in runs)
     }
     if not active_params:
-        print("No hyperparameter data found — skipping scatter plot.")
+        print("No hyperparameter data found - skipping scatter plot.")
         return
 
     ncols = 3
     nrows = (len(active_params) + ncols - 1) // ncols
     fig, axes = plt.subplots(nrows, ncols, figsize=(15, 4 * nrows))
-    fig.suptitle("Hyperparameter vs Mean RMSE (°C) — all runs", fontsize=13)
+    fig.suptitle("Hyperparameter vs Mean RMSE (°C) - all runs", fontsize=13)
     axes = axes.flatten()
 
     model_types = sorted({r["model_type"] for r in runs})
@@ -177,7 +170,7 @@ def plot_param_scatter(runs: list[dict], save_path: Path):
         ax.set_ylabel("Mean RMSE (°C)", fontsize=9)
         ax.grid(True, alpha=0.3)
 
-    # Legend — one entry per model type, placed on the last active axis
+    # Legend - one entry per model type, placed on the last active axis
     handles = [
         mpatches.Patch(color=MODEL_COLOURS.get(mt, MODEL_COLOURS["unknown"]), label=mt)
         for mt in model_types
@@ -192,14 +185,11 @@ def plot_param_scatter(runs: list[dict], save_path: Path):
     print(f"Saved: {save_path}")
     plt.close()
 
-
-# ---------------------------------------------------------------------------
 # Figure 2: overlaid RMSE-per-step + skill curves
-# ---------------------------------------------------------------------------
 
 def plot_curves(runs: list[dict], save_path: Path, top_n: int = 5):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
-    fig.suptitle("RMSE & Skill per Forecast Day — all runs", fontsize=13)
+    fig.suptitle("RMSE & Skill per Forecast Day - all runs", fontsize=13)
 
     # Persistence from the first run that has it (same signal for all runs)
     pers_run = next((r for r in runs if r["pers_steps"] is not None), None)
@@ -208,7 +198,7 @@ def plot_curves(runs: list[dict], save_path: Path, top_n: int = 5):
                  label="Persistence", zorder=5)
         ax2.axhline(0, color="black", linewidth=1.2, zorder=5)
 
-    # Background lines — coloured by model type, faint
+    # Background lines - coloured by model type, faint
     for r in runs:
         colour = MODEL_COLOURS.get(r["model_type"], MODEL_COLOURS["unknown"])
         ax1.plot(DAYS, r["rmse_steps"], color=colour, alpha=0.20, linewidth=0.9)
@@ -216,7 +206,7 @@ def plot_curves(runs: list[dict], save_path: Path, top_n: int = 5):
             skill = 1 - r["rmse_steps"] / pers_run["pers_steps"]
             ax2.plot(DAYS, skill, color=colour, alpha=0.20, linewidth=0.9)
 
-    # Top N — bold, labelled, coloured by model type (darker shade)
+    # Top N - bold, labelled, coloured by model type (darker shade)
     for i, r in enumerate(runs[:top_n]):
         colour = MODEL_COLOURS.get(r["model_type"], MODEL_COLOURS["unknown"])
         label  = f"#{i+1} [{r['model_type']}] {r['name'][-13:]} {r['mean_rmse']:.4f}°C"
@@ -252,22 +242,17 @@ def plot_curves(runs: list[dict], save_path: Path, top_n: int = 5):
     print(f"Saved: {save_path}")
     plt.close()
 
-
-# ---------------------------------------------------------------------------
 # Main
-# ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Final report — one clean line per model, from retrain_best.py artifacts
-# ---------------------------------------------------------------------------
+# Final report - one clean line per model, from retrain_best.py artifacts
 
 def plot_final_comparison(out_dir: Path):
     """
     Reads experiments/best_<model>/summary.json for each available model and
     produces a single report-quality figure:
-      Left panel  — RMSE per forecast day, one line per architecture
-      Right panel — Skill per forecast day, one line per architecture
-      Bottom      — metrics summary table (RMSE, skill, BIC, params)
+      Left panel  - RMSE per forecast day, one line per architecture
+      Right panel - Skill per forecast day, one line per architecture
+      Bottom      - metrics summary table (RMSE, skill, BIC, params)
     """
     summaries = {}
     for mt in MODEL_COLOURS:
@@ -276,7 +261,7 @@ def plot_final_comparison(out_dir: Path):
             summaries[mt] = json.load(open(p))
 
     if not summaries:
-        print("No best_<model>/ artifacts found — run retrain_best.py first.")
+        print("No best_<model>/ artifacts found - run retrain_best.py first.")
         return
 
     fig = plt.figure(figsize=(16, 10))
@@ -290,7 +275,7 @@ def plot_final_comparison(out_dir: Path):
     ax_skill = fig.add_subplot(gs[0, 1])
     ax_tbl   = fig.add_subplot(gs[1, :])
 
-    fig.suptitle("Final Model Comparison — best HPO config per architecture",
+    fig.suptitle("Final Model Comparison - best HPO config per architecture",
                  fontsize=13, fontweight="bold")
 
     # Reference persistence from the first summary that has it
@@ -356,7 +341,6 @@ def plot_final_comparison(out_dir: Path):
     print(f"Saved: {out}")
     plt.close()
 
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out_dir", type=str,
@@ -398,7 +382,6 @@ def main():
               f"lr={cfg.get('learning_rate', float('nan')):.2e}  "
               f"dropout={cfg.get('dropout', float('nan')):.2f}  "
               f"epochs={r['epochs']}")
-
 
 if __name__ == "__main__":
     main()

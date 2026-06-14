@@ -1,5 +1,5 @@
 """
-Tubelet Transformer experiment — train, evaluate, and visualise results.
+Tubelet Transformer experiment - train, evaluate, and visualise results.
 
 Mirrors the structure of run_lstm_experiment.py so results are directly
 comparable. Each run is saved to experiments/results/run_YYYYMMDD_HHMMSS/
@@ -31,10 +31,7 @@ from src.training.evaluate import predict
 from src.baselines.persistence import persistence_forecast
 from src.utils.metrics import rmse, rmse_per_step, mae, skill_score
 
-
-# ---------------------------------------------------------------------------
 # Configuration
-# ---------------------------------------------------------------------------
 
 ZARR_PATH = PROJECT_ROOT / "data/processed/oisst_coralsea.zarr"
 RESULTS_DIR = PROJECT_ROOT / "experiments/results"
@@ -63,10 +60,7 @@ ANOMALY_ALPHA       = 1.0    # anomaly-weighted loss strength (0 = standard MSE)
 
 RANDOM_SEED = 42
 
-
-# ---------------------------------------------------------------------------
 # Visualisation
-# ---------------------------------------------------------------------------
 
 def plot_results(
     train_losses, val_losses,
@@ -79,7 +73,7 @@ def plot_results(
 ):
     """Six-panel summary figure saved to save_path."""
     fig, axes = plt.subplots(2, 3, figsize=(18, 10))
-    fig.suptitle("Tubelet Transformer — SST Forecasting (Coral Sea)", fontsize=14)
+    fig.suptitle("Tubelet Transformer - SST Forecasting (Coral Sea)", fontsize=14)
 
     days = np.arange(1, horizon + 1)
     extent = [lon[0], lon[-1], lat[0], lat[-1]]  # [W, E, S, N]
@@ -123,7 +117,7 @@ def plot_results(
     fig.colorbar(im, ax=ax, label="RMSE (°C)")
     ax.set_xlabel("Longitude (°E)")
     ax.set_ylabel("Latitude (°N)")
-    ax.set_title("Spatial RMSE — mean over test set & all steps")
+    ax.set_title("Spatial RMSE - mean over test set & all steps")
 
     # --- [1,1] Sample prediction at day HORIZON ---
     vmax = float(np.nanmax(np.abs(sample_pred)))
@@ -137,7 +131,7 @@ def plot_results(
     fig.colorbar(im, ax=ax, label="SST anomaly (°C)")
     ax.set_xlabel("Longitude (°E)")
     ax.set_ylabel("Latitude (°N)")
-    ax.set_title(f"Predicted anomaly — day {horizon}")
+    ax.set_title(f"Predicted anomaly - day {horizon}")
 
     # --- [1,2] Corresponding ground truth ---
     ax = axes[1, 2]
@@ -148,17 +142,14 @@ def plot_results(
     fig.colorbar(im, ax=ax, label="SST anomaly (°C)")
     ax.set_xlabel("Longitude (°E)")
     ax.set_ylabel("Latitude (°N)")
-    ax.set_title(f"Ground truth anomaly — day {horizon}")
+    ax.set_title(f"Ground truth anomaly - day {horizon}")
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
     print(f"Figure saved to {save_path}")
     plt.close()
 
-
-# ---------------------------------------------------------------------------
 # Main
-# ---------------------------------------------------------------------------
 
 def parse_args():
     p = argparse.ArgumentParser(description="Run a Tubelet Transformer experiment.")
@@ -183,7 +174,6 @@ def parse_args():
     p.add_argument("--seed",                type=int,   default=RANDOM_SEED)
     p.add_argument("--alpha",               type=float, default=ANOMALY_ALPHA)
     return p.parse_args()
-
 
 def main():
     args = parse_args()
@@ -346,7 +336,7 @@ def main():
     print(f"Metrics saved to {run_dir / 'metrics.json'}")
 
     # Print summary
-    print("\nTubelet Transformer — Test Results")
+    print("\nTubelet Transformer - Test Results")
     print("-----------------------------------")
     print(f"  Context: {args.context_len} days  Horizon: {args.horizon} days  Device: {device}")
     print(f"  T'={model.T_prime} time tokens  P={model.P} spatial patches")
@@ -386,7 +376,6 @@ def main():
         horizon=args.horizon,
         save_path=run_dir / "tubelet_results.png",
     )
-
 
 if __name__ == "__main__":
     main()

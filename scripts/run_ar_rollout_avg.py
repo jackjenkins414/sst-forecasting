@@ -1,41 +1,15 @@
 """
-Autoregressive rollout (phase-averaged chunked).
+Phase-averaged 7-day chunked autoregressive rollout.
 
-The 7-day chunked rollout (run_ar_rollout_7day.py) gives the best long-horizon
-accuracy, because it advances the context by feeding back COHERENT 7-day blocks
-(predicted together in one pass), which stay close to the training distribution.
-Its only flaw is cosmetic: the chunk boundaries produce a period-7 sawtooth.
-
-A naive fix -- slide the origin by 1 day and average overlapping per-day forecasts
--- was tried and REJECTED: sliding by 1 means feeding back the model's day-1 frame
-repeatedly, i.e. the maximal-compounding 1-day trajectory, which corrupts the
-context far faster. Averaging reduces variance but not the resulting bias, so it
-underperformed the chunked rollout badly (seed1 patch: day-49 RMSE 1.38 vs 0.87).
-The feedback trajectory matters more than output averaging.
-
-This variant keeps the good block-feedback trajectory and removes the sawtooth by
-PHASE AVERAGING: run the 7-day chunked rollout 7 times with the chunk boundaries
-offset by o = 0..6 days (a partial first block of length o, then full 7-day blocks),
-and average per target day. Each phase is a high-quality chunked rollout; the
-boundaries land on different days across phases, so the sawtooth smears out. Each
-day ends up predicted at all 7 leads across the 7 phases -> lead diversity and
-variance reduction without trajectory corruption. Cost ~= 49 passes/window.
-
-Averaging is linear and denorm is affine, so we accumulate in normalised space and
-denormalise once at the end (identical result, simpler code).
-
-Reuses (no edits to committed code):
-  MODEL_BUILDERS               from scripts/retrain_best.py
-  SstWindowDataset             from src/data/dataset.py
-  rmse_per_step, skill_score   from src/utils/metrics.py
-  persistence_forecast         from src/baselines/persistence.py
-
-Output directory: experiments/ar_rollout_avg/[seed<N>/]
+Rolls each trained model forward in 7-day blocks (feeding its own output back into
+the 90-day context) and averages seven rollouts whose block boundaries are offset by
+0..6 days, which removes the period-7 boundary oscillation. Outputs are written to
+experiments/ar_rollout_avg/[seed<N>/].
 
 Usage
 -----
     python scripts/run_ar_rollout_avg.py --max-horizon 49 --models patch_transformer tubelet
-    python scripts/run_ar_rollout_avg.py --seed 1 --max-horizon 49 --weighting invvar
+    python scripts/run_ar_rollout_avg.py --seed 1 --max-horizon 49
 """
 
 import argparse
@@ -74,10 +48,7 @@ DISPLAY = {
     "tubelet":           "Tubelet Transformer",
 }
 
-
-# ---------------------------------------------------------------------------
 # Core: phase-averaged chunked rollout
-# ---------------------------------------------------------------------------
 
 def load_model(model_type: str, device: torch.device, H: int, W: int,
                seed: int | None = None):
@@ -89,7 +60,6 @@ def load_model(model_type: str, device: torch.device, H: int, W: int,
     model.eval()
     print(f"  loaded {model_type} from {best / 'model.pt'}")
     return model
-
 
 def _chunked_rollout_phase(model, x: torch.Tensor, max_horizon: int, offset: int,
                            device: torch.device) -> torch.Tensor:
@@ -114,7 +84,6 @@ def _chunked_rollout_phase(model, x: torch.Tensor, max_horizon: int, offset: int
         first = False
     return torch.cat(chunks, dim=1)[:, :max_horizon]
 
-
 def autoregressive_predict_avg(model, x: torch.Tensor, max_horizon: int,
                                device: torch.device) -> np.ndarray:
     """
@@ -131,10 +100,7 @@ def autoregressive_predict_avg(model, x: torch.Tensor, max_horizon: int,
             acc += _chunked_rollout_phase(model, x, max_horizon, offset, device)
     return (acc / HORIZON_STEP).cpu().numpy()
 
-
-# ---------------------------------------------------------------------------
 # Plot
-# ---------------------------------------------------------------------------
 
 def plot_ar(rmse: dict, skill: dict, useful: dict, max_h: int, out_path: Path):
     days = list(range(1, max_h + 1))
@@ -152,7 +118,7 @@ def plot_ar(rmse: dict, skill: dict, useful: dict, max_h: int, out_path: Path):
              fontsize=8, color="grey", style="italic", va="bottom")
     axL.set_xlabel("Forecast day")
     axL.set_ylabel(r"RMSE ($^\circ$C)")
-    axL.set_title("RMSE vs lead time — sliding-origin averaged rollout")
+    axL.set_title("RMSE vs lead time - sliding-origin averaged rollout")
     axL.legend(fontsize=9, loc="lower right")
     axL.grid(alpha=0.3)
 
@@ -177,20 +143,17 @@ def plot_ar(rmse: dict, skill: dict, useful: dict, max_h: int, out_path: Path):
 
     axR.set_xlabel("Forecast day")
     axR.set_ylabel("Skill vs climatology")
-    axR.set_title("Skill score — first crossing of zero is the useful horizon")
+    axR.set_title("Skill score - first crossing of zero is the useful horizon")
     axR.legend(fontsize=9, loc="upper right")
     axR.grid(alpha=0.3)
 
-    fig.suptitle("Autoregressive rollout (sliding-origin averaged) — how far can we predict?",
+    fig.suptitle("Autoregressive rollout (sliding-origin averaged) - how far can we predict?",
                  fontsize=13, fontweight="bold", y=1.02)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close()
 
-
-# ---------------------------------------------------------------------------
 # Main
-# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser()
@@ -313,7 +276,6 @@ def main():
             out_dir / "ar_long_horizon.png")
     print(f"\nOutputs written to {out_dir}")
     print(f"Useful horizons: {useful}")
-
 
 if __name__ == "__main__":
     main()

@@ -22,13 +22,11 @@ LOG_PATH     = PROJECT_ROOT / "experiments" / "report_pipeline_log.txt"
 # Fast attention/recurrent models first; ConvLSTM last (slow B=2 ~ overnight).
 MODELS = ["tubelet", "lstm", "informer", "transformer", "convlstm"]
 
-
 def log(msg: str):
     line = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
     print(line, flush=True)
     with open(LOG_PATH, "a") as f:
         f.write(line + "\n")
-
 
 def run(cmd: list[str], label: str) -> bool:
     log(f"START  {label}")
@@ -40,7 +38,6 @@ def run(cmd: list[str], label: str) -> bool:
         return False
     log(f"DONE   {label} ({dt:.1f} min)")
     return True
-
 
 def main():
     py = sys.executable
@@ -58,7 +55,6 @@ def main():
     log("=== Report pipeline complete ===")
     log("  Per-model artifacts: experiments/best_<model>/ and report PNGs")
     log("  Comparison: experiments/comparison_*.png")
-
 
 if __name__ == "__main__":
     main()

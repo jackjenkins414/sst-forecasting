@@ -40,9 +40,7 @@ from src.utils.metrics import rmse_per_step, skill_score
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-# ---------------------------------------------------------------------------
-# Fixed — not part of the search
-# ---------------------------------------------------------------------------
+# Fixed - not part of the search
 
 ZARR_PATH   = PROJECT_ROOT / "data/processed/oisst_coralsea.zarr"
 RESULTS_DIR = PROJECT_ROOT / "experiments/results"
@@ -55,9 +53,7 @@ NUM_EPOCHS          = 50
 EARLY_STOP_PATIENCE = 5
 RANDOM_SEED         = 42
 
-# ---------------------------------------------------------------------------
 # Search space
-# ---------------------------------------------------------------------------
 
 SEARCH_SPACE = {
     "lr":            FloatDistribution(1e-4, 2e-3, log=True),
@@ -81,10 +77,7 @@ SEED_CONFIG = {
     "anomaly_alpha": 0.0,
 }
 
-
-# ---------------------------------------------------------------------------
 # Seed study with previous LSTM runs
-# ---------------------------------------------------------------------------
 
 def _params_from_config(config: dict) -> dict | None:
     if config.get("model_type") != "lstm":
@@ -110,7 +103,6 @@ def _params_from_config(config: dict) -> dict | None:
                 return None
     return mapping
 
-
 def load_previous_runs(study: optuna.Study) -> int:
     loaded = 0
     for run_dir in sorted(RESULTS_DIR.glob("run_*/")):
@@ -134,10 +126,7 @@ def load_previous_runs(study: optuna.Study) -> int:
         loaded += 1
     return loaded
 
-
-# ---------------------------------------------------------------------------
 # Objective
-# ---------------------------------------------------------------------------
 
 def make_objective(land_mask_np, norm_mean, norm_std,
                    train_loader, val_loader, test_loader, device):
@@ -233,17 +222,13 @@ def make_objective(land_mask_np, norm_mean, norm_std,
 
     return objective
 
-
 def _dist_kwargs(dist) -> dict:
     kwargs = {"name": None, "low": dist.low, "high": dist.high}
     if hasattr(dist, "log") and dist.log:
         kwargs["log"] = True
     return {k: v for k, v in kwargs.items() if k != "name"}
 
-
-# ---------------------------------------------------------------------------
 # Main
-# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser()
@@ -299,7 +284,6 @@ def main():
     _print_summary(study)
     save_study_plots(study, model_name="lstm")
 
-
 def _print_summary(study: optuna.Study):
     trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
     if not trials:
@@ -316,7 +300,6 @@ def _print_summary(study: optuna.Study):
     for i, t in enumerate(sorted(trials, key=lambda t: t.value)[:5], 1):
         print(f"  {i}. RMSE={t.value:.4f}  " +
               "  ".join(f"{k}={v}" for k, v in t.params.items()))
-
 
 if __name__ == "__main__":
     main()

@@ -32,7 +32,6 @@ DISPLAY = {"patch_transformer": "Patch Transformer", "convlstm": "ConvLSTM",
            "tubelet": "Tubelet Transformer"}
 T_CRIT_N3 = 4.303  # t_{0.975, df=2}
 
-
 def _band(stack: np.ndarray, kind: str):
     """stack: (n_seeds, n_days) -> (centre, lo, hi)."""
     mean = stack.mean(axis=0)
@@ -43,7 +42,6 @@ def _band(stack: np.ndarray, kind: str):
         half = T_CRIT_N3 * sd / np.sqrt(stack.shape[0])
         return mean, mean - half, mean + half
     return mean, mean - sd, mean + sd          # std (default)
-
 
 def main():
     ap = argparse.ArgumentParser()
@@ -113,7 +111,6 @@ def main():
     plt.savefig(out, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"wrote {out}")
-
 
 if __name__ == "__main__":
     main()

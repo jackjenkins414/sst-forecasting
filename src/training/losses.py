@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 
-
 class AnomalyWeightedMSE(nn.Module):
     """
     MSE loss weighted by the magnitude of the target anomaly.
