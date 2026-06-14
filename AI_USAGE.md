@@ -23,7 +23,7 @@ positional encoding preserved this shape and added no trainable parameters), and
 for the SST setting were sound while the domain-agnostic blocks (attention, FFN) were carried across faithfully. All architectural decisions and the final implementations are my own.
 
 ### Ayush Samuel (u7508601)
-_[to complete]_
+I used Github coploit and claude code and for research and building my parts of the LSTM. My work was building the main architecture and framework, AI was used to help in debug specific coding issues. 
 
 ### Khaled El-hassan (u6890851)
 I used GitHub Copilot and Claude Code as assistants while building and running my parts of the project (the Tubelet Transformer, thehyperparameter-tuning framework, and the long-horizon rollout analysis). My workflow was to design the approach and write the architecture, framework, and initial scripts myself, and to call on AI only when I got stuck on a specific problem. Specifically, I used it to:
