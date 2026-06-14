@@ -9,6 +9,7 @@ This document records each group member's use of generative AI tools during the 
 ## Tools used
 - GitHub Copilot
 - Claude Code
+- NotebookLM (Google)
 
 ---
 
@@ -35,4 +36,6 @@ I also used it to help draft and tidy portions of the report and to generate qui
 design, and results are my own.
 
 ### Isaac Jaensch (u7262835)
-_[to complete]_
+I used NotebookLM to extract and categorise key equations from the 'Informer: Beyond Efficient Transformer for Long Sequence Time-Series Forecasting' (ProbSparse Informer) paper. This was utilised as a supplementary tool after reading the paper and designing the model framework to assist with code commenting and model verification. NotebookLM was not used as a substitute for the reading nor analysis of the aforementioned paper. 
+
+No Generative AI was used for coding, model design, nor report writing. 
