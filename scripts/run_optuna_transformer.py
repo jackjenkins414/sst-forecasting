@@ -62,7 +62,6 @@ SEARCH_SPACE = {
     "lr_factor":FloatDistribution(0.4, 0.7),
 }
 
-
 def _make_loader(zarr_path, split, batch_size, context_len, horizon):
     ds = SSTWindowDataset(
         zarr_path=str(zarr_path),
@@ -75,7 +74,6 @@ def _make_loader(zarr_path, split, batch_size, context_len, horizon):
         shuffle=(split == "train"),
         num_workers=0, drop_last=False,
     )
-
 
 def make_objective(land_mask_np, norm_mean, norm_std,
                    train_loader, val_loader, test_loader,
@@ -219,13 +217,11 @@ def make_objective(land_mask_np, norm_mean, norm_std,
 
     return objective
 
-
 def _dist_kwargs(dist) -> dict:
     kwargs = {"name": None, "low": dist.low, "high": dist.high}
     if hasattr(dist, "log") and dist.log:
         kwargs["log"] = True
     return {k: v for k, v in kwargs.items() if k != "name"}
-
 
 def _compute_persistence_baseline(zarr_path, land_mask_np, norm_mean, norm_std,
                                    context_len, horizon, batch_size):
@@ -241,7 +237,6 @@ def _compute_persistence_baseline(zarr_path, land_mask_np, norm_mean, norm_std,
     pers      = pers_norm * norm_std + norm_mean
     targets   = y_norm   * norm_std + norm_mean
     return rmse_per_step(pers, targets, land_mask=land_mask_np)
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -294,7 +289,6 @@ def main():
     study.optimize(objective, n_trials=args.n_trials, show_progress_bar=False)
     _print_summary(study)
 
-
 def _print_summary(study: optuna.Study):
     trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
     if not trials:
@@ -311,7 +305,6 @@ def _print_summary(study: optuna.Study):
     for i, t in enumerate(sorted(trials, key=lambda t: t.value)[:5], 1):
         print(f"  {i}. RMSE={t.value:.4f}  " +
               "  ".join(f"{k}={v}" for k, v in t.params.items()))
-
 
 if __name__ == "__main__":
     main()

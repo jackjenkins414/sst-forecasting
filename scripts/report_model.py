@@ -63,7 +63,6 @@ HP_DISPLAY = [
     ("FFN dim",        "ffn_dim"),
 ]
 
-
 def load_artifacts(model_type: str) -> dict:
     d = BEST_DIR / f"best_{model_type}"
     if not d.exists():
@@ -78,13 +77,11 @@ def load_artifacts(model_type: str) -> dict:
     return dict(preds=preds, targets=targets, summary=summary,
                 curves=curves, config=config)
 
-
 def _mask(arr: np.ndarray, land_mask: np.ndarray) -> np.ndarray:
     """Set land pixels to NaN for display."""
     out = arr.copy().astype(float)
     out[~land_mask.astype(bool)] = np.nan
     return out
-
 
 def generate_report(model_type: str, land_mask: np.ndarray,
                     lat: np.ndarray, lon: np.ndarray):
@@ -106,10 +103,9 @@ def generate_report(model_type: str, land_mask: np.ndarray,
     pred_d7 = _mask(preds[example_idx,   6], land_mask)
     err_d7  = _mask(preds[example_idx,   6] - targets[example_idx, 6], land_mask)
 
-    # -----------------------------------------------------------------------
     fig = plt.figure(figsize=(22, 11))
     fig.suptitle(
-        f"{model_type.upper()} — Best HPO config  "
+        f"{model_type.upper()} - Best HPO config  "
         f"({s['n_params']:,} params  ·  RMSE {s['mean_rmse']:.4f} °C  ·  "
         f"skill {s['mean_skill']:.4f})",
         fontsize=14, fontweight="bold", y=0.98,
@@ -189,14 +185,14 @@ def generate_report(model_type: str, land_mask: np.ndarray,
     ax_true = fig.add_subplot(gs[1, 0])
     im1 = ax_true.imshow(true_d7, origin="lower", aspect="auto",
                          extent=extent, cmap=cmap_sst, vmin=vmin, vmax=vmax)
-    ax_true.set_title(f"True SST — day 7\n{example_date}", fontsize=9)
+    ax_true.set_title(f"True SST - day 7\n{example_date}", fontsize=9)
     ax_true.set_xlabel("Lon"); ax_true.set_ylabel("Lat")
     plt.colorbar(im1, ax=ax_true, fraction=0.04, pad=0.04).set_label("°C", fontsize=8)
 
     ax_pred = fig.add_subplot(gs[1, 1])
     im2 = ax_pred.imshow(pred_d7, origin="lower", aspect="auto",
                          extent=extent, cmap=cmap_sst, vmin=vmin, vmax=vmax)
-    ax_pred.set_title(f"Predicted SST — day 7\n{model_type}", fontsize=9)
+    ax_pred.set_title(f"Predicted SST - day 7\n{model_type}", fontsize=9)
     ax_pred.set_xlabel("Lon"); ax_pred.set_ylabel("Lat")
     plt.colorbar(im2, ax=ax_pred, fraction=0.04, pad=0.04).set_label("°C", fontsize=8)
 
@@ -204,7 +200,7 @@ def generate_report(model_type: str, land_mask: np.ndarray,
     im3 = ax_err.imshow(err_d7, origin="lower", aspect="auto",
                         extent=extent, cmap="RdBu_r",
                         vmin=-err_abs, vmax=err_abs)
-    ax_err.set_title("Error (Pred − True) — day 7", fontsize=9)
+    ax_err.set_title("Error (Pred − True) - day 7", fontsize=9)
     ax_err.set_xlabel("Lon"); ax_err.set_ylabel("Lat")
     plt.colorbar(im3, ax=ax_err, fraction=0.04, pad=0.04).set_label("°C", fontsize=8)
 
@@ -236,7 +232,6 @@ def generate_report(model_type: str, land_mask: np.ndarray,
     plt.close()
     print(f"Saved: {out_path}")
 
-
 def main():
     parser = argparse.ArgumentParser()
     group = parser.add_mutually_exclusive_group(required=True)
@@ -257,11 +252,10 @@ def main():
     for mt in models:
         best_dir = BEST_DIR / f"best_{mt}"
         if args.all and not best_dir.exists():
-            print(f"Skipping {mt} — no artifacts (run retrain_best.py first)")
+            print(f"Skipping {mt} - no artifacts (run retrain_best.py first)")
             continue
         print(f"Generating report for {mt}...")
         generate_report(mt, land_mask, lat, lon)
-
 
 if __name__ == "__main__":
     main()

@@ -5,13 +5,7 @@ Each model was trained for direct 7-day forecasting. This script rolls them
 forward day-by-day past that horizon by feeding day-1 of the model's own
 prediction back into the context window, then predicting again, repeated for
 MAX_HORIZON days. Errors compound, and the model eventually converges to
-climatology — the "useful horizon" is the last day where it still beats it.
-
-Reuses (no edits to committed code):
-  MODEL_BUILDERS, find_best_config  from scripts/retrain_best.py
-  SstWindowDataset                   from src/data/dataset.py
-  rmse_per_step, skill_score         from src/utils/metrics.py
-  persistence_forecast               from src/baselines/persistence.py
+climatology - the "useful horizon" is the last day where it still beats it.
 
 Usage
 -----
@@ -55,14 +49,11 @@ DISPLAY = {
     "tubelet":           "Tubelet Transformer",
 }
 
-
-# ---------------------------------------------------------------------------
 # Core: load a model and run an AR rollout on a batch of contexts
-# ---------------------------------------------------------------------------
 
 def load_model(model_type: str, device: torch.device, H: int, W: int,
                seed: int | None = None):
-    # Read the config that the retrained checkpoint was built with — directly
+    # Read the config that the retrained checkpoint was built with - directly
     # from best_<model>[_seed<N>]/config.json. Avoids relying on the original
     # HPO run dir, which may not exist on every branch.
     suffix = f"_seed{seed}" if seed is not None else ""
@@ -73,7 +64,6 @@ def load_model(model_type: str, device: torch.device, H: int, W: int,
     model.eval()
     print(f"  loaded {model_type} from {best / 'model.pt'}")
     return model
-
 
 def autoregressive_predict(model, x: torch.Tensor, max_horizon: int,
                            device: torch.device) -> np.ndarray:
@@ -87,17 +77,14 @@ def autoregressive_predict(model, x: torch.Tensor, max_horizon: int,
     with torch.no_grad():
         for _ in range(max_horizon):
             out = model(ctx)        # (B, h=7, H, W)
-            day1 = out[:, 0]        # (B, H, W) — keep only day-1
+            day1 = out[:, 0]        # (B, H, W) - keep only day-1
             preds.append(day1)
             # append day-1 prediction to context as a new (1, 1, H, W) frame,
             # drop the oldest frame
             ctx = torch.cat([ctx[:, 1:], day1[:, None, None]], dim=1)
     return torch.stack(preds, dim=1).cpu().numpy()
 
-
-# ---------------------------------------------------------------------------
 # Plot
-# ---------------------------------------------------------------------------
 
 def plot_ar(rmse: dict, skill: dict, useful: dict, max_h: int, out_path: Path):
     days = list(range(1, max_h + 1))
@@ -116,7 +103,7 @@ def plot_ar(rmse: dict, skill: dict, useful: dict, max_h: int, out_path: Path):
              fontsize=8, color="grey", style="italic", va="bottom")
     axL.set_xlabel("Forecast day")
     axL.set_ylabel(r"RMSE ($^\circ$C)")
-    axL.set_title("RMSE vs lead time — autoregressive rollout")
+    axL.set_title("RMSE vs lead time - autoregressive rollout")
     axL.legend(fontsize=9, loc="lower right")
     axL.grid(alpha=0.3)
 
@@ -143,27 +130,24 @@ def plot_ar(rmse: dict, skill: dict, useful: dict, max_h: int, out_path: Path):
 
     axR.set_xlabel("Forecast day")
     axR.set_ylabel("Skill vs climatology")
-    axR.set_title("Skill score — first crossing of zero is the useful horizon")
+    axR.set_title("Skill score - first crossing of zero is the useful horizon")
     axR.legend(fontsize=9, loc="upper right")
     axR.grid(alpha=0.3)
 
-    fig.suptitle("Autoregressive rollout — how far can we predict?",
+    fig.suptitle("Autoregressive rollout - how far can we predict?",
                  fontsize=13, fontweight="bold", y=1.02)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close()
 
-
-# ---------------------------------------------------------------------------
 # Main
-# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--max-horizon", type=int, default=30,
                         help="How many days to roll out (default 30).")
     parser.add_argument("--batch-size",  type=int, default=8,
-                        help="Inference batch size (default 8 — fits ConvLSTM "
+                        help="Inference batch size (default 8 - fits ConvLSTM "
                              "without BPTT activations).")
     parser.add_argument("--models", nargs="+", default=DEFAULT_MODELS,
                         choices=DEFAULT_MODELS,
@@ -273,10 +257,8 @@ def main():
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    # --- Save artifacts: one file per model. Avoids the overwrite bug we had
-    # when the same seed dir was reused by sequential single-model calls.
-    # Baselines are deterministic and stored alongside each model's data so
-    # any per-model file is self-contained.
+    # Save one file per model. The deterministic baselines are stored alongside
+    # each model's data so every per-model file is self-contained.
     for mt in args.models:
         if mt not in results:   # may have been skipped on import/load error
             continue
@@ -293,7 +275,6 @@ def main():
             out_dir / "ar_long_horizon.png")
     print(f"\nOutputs written to {out_dir}")
     print(f"Useful horizons: {useful}")
-
 
 if __name__ == "__main__":
     main()

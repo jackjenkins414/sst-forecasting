@@ -1,5 +1,5 @@
 """
-SST Tubelet Transformer — factored spatiotemporal transformer for SST forecasting.
+SST Tubelet Transformer - factored spatiotemporal transformer for SST forecasting.
 
 Input:  (B, L, 1, H, W)  normalised SST anomaly, L days of context
 Output: (B, h, H, W)     h-step-ahead normalised SST anomaly
@@ -20,7 +20,6 @@ import math
 import torch
 import torch.nn as nn
 
-
 def _sinusoidal_pe(length, d_model):
     """Fixed sinusoidal PE table, shape (length, d_model)."""
     pe  = torch.zeros(length, d_model)
@@ -29,7 +28,6 @@ def _sinusoidal_pe(length, d_model):
     pe[:, 0::2] = torch.sin(pos * div)
     pe[:, 1::2] = torch.cos(pos * div)
     return pe
-
 
 class _FactoredBlock(nn.Module):
     """
@@ -72,7 +70,6 @@ class _FactoredBlock(nn.Module):
         x = self.norm3(x + self.drop(self.ff(x)))
         return x
 
-
 class TubeletTransformer(nn.Module):
     """
     Factored spatiotemporal transformer for SST forecasting.
@@ -86,7 +83,7 @@ class TubeletTransformer(nn.Module):
     n_heads     : attention heads (d_model must be divisible by n_heads)
     n_layers    : number of FactoredBlocks
     d_ff        : FFN hidden dimension
-    t_s         : temporal stride — days per tubelet (90/5 = 18 time tokens)
+    t_s         : temporal stride - days per tubelet (90/5 = 18 time tokens)
     p_h, p_w    : spatial patch size in cells (9x11 divides 81x121 exactly)
     dropout     : applied in attention and FFN
     """
@@ -135,7 +132,7 @@ class TubeletTransformer(nn.Module):
         self.norm = nn.LayerNorm(d_model)
 
         # ConvTranspose2d with kernel slightly larger than stride so adjacent
-        # patches overlap in the reconstruction — eliminates hard patch boundaries.
+        # patches overlap in the reconstruction - eliminates hard patch boundaries.
         # kernel (p_h+2, p_w+2) with padding=1 preserves exact output size H×W.
         self.head = nn.ConvTranspose2d(
             d_model, horizon,

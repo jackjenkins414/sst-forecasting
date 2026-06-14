@@ -40,9 +40,7 @@ from src.utils.metrics import rmse_per_step, skill_score
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-# ---------------------------------------------------------------------------
-# Fixed — not part of the search
-# ---------------------------------------------------------------------------
+# Fixed - not part of the search
 
 ZARR_PATH   = PROJECT_ROOT / "data/processed/oisst_coralsea.zarr"
 RESULTS_DIR = PROJECT_ROOT / "experiments/results"
@@ -53,19 +51,17 @@ HORIZON             = 7
 BATCH_SIZE          = 4   # ConvLSTM keeps full H×W hidden states across all 90
                           # timesteps; BPTT retains the whole graph, so even small
                           # configs hit ~6-7 GB. B=8 OOMs on 12 GB. Large configs
-                          # (hidden=96, layers=4) OOM even at B=4 — the OOM guard
+                          # (hidden=96, layers=4) OOM even at B=4 - the OOM guard
                           # below prunes those so the wide search space is safe.
 NUM_EPOCHS          = 50
 EARLY_STOP_PATIENCE = 5
 RANDOM_SEED         = 42
 
-# ---------------------------------------------------------------------------
 # Search space
 #
-# hidden_dim  — channel count used for every ConvLSTM layer
-# n_layers    — how many ConvLSTM layers to stack
-# kernel_size — spatial conv kernel (3 = local, 5 = broader receptive field)
-# ---------------------------------------------------------------------------
+# hidden_dim  - channel count used for every ConvLSTM layer
+# n_layers    - how many ConvLSTM layers to stack
+# kernel_size - spatial conv kernel (3 = local, 5 = broader receptive field)
 
 SEARCH_SPACE = {
     "lr":            FloatDistribution(1e-4, 2e-3, log=True),
@@ -89,10 +85,7 @@ SEED_CONFIG = {
     "anomaly_alpha": 0.0,
 }
 
-
-# ---------------------------------------------------------------------------
 # Seed study with previous ConvLSTM runs
-# ---------------------------------------------------------------------------
 
 def _params_from_config(config: dict) -> dict | None:
     if config.get("model_type") != "convlstm":
@@ -118,7 +111,6 @@ def _params_from_config(config: dict) -> dict | None:
                 return None
     return mapping
 
-
 def load_previous_runs(study: optuna.Study) -> int:
     loaded = 0
     for run_dir in sorted(RESULTS_DIR.glob("run_*/")):
@@ -142,10 +134,7 @@ def load_previous_runs(study: optuna.Study) -> int:
         loaded += 1
     return loaded
 
-
-# ---------------------------------------------------------------------------
 # Objective
-# ---------------------------------------------------------------------------
 
 def make_objective(land_mask_np, norm_mean, norm_std,
                    train_loader, val_loader, test_loader, device):
@@ -225,14 +214,14 @@ def make_objective(land_mask_np, norm_mean, norm_std,
             raise
         except RuntimeError as e:
             # CUDA OOM can surface as OutOfMemoryError or a plain RuntimeError.
-            # Config too large for 12 GB VRAM — free memory and prune so the
+            # Config too large for 12 GB VRAM - free memory and prune so the
             # study keeps exploring the feasible part of the search space.
             if "out of memory" not in str(e).lower():
                 raise
             del model, optimizer
             torch.cuda.empty_cache()
             print(f"  Trial {trial.number:03d} OOM (hidden={hidden_dim}, "
-                  f"layers={n_layers}, k={kernel_size}) — pruned")
+                  f"layers={n_layers}, k={kernel_size}) - pruned")
             raise optuna.exceptions.TrialPruned()
 
         test_preds_norm, test_targets_norm = predict(model, test_loader, device)
@@ -256,17 +245,13 @@ def make_objective(land_mask_np, norm_mean, norm_std,
 
     return objective
 
-
 def _dist_kwargs(dist) -> dict:
     kwargs = {"name": None, "low": dist.low, "high": dist.high}
     if hasattr(dist, "log") and dist.log:
         kwargs["log"] = True
     return {k: v for k, v in kwargs.items() if k != "name"}
 
-
-# ---------------------------------------------------------------------------
 # Main
-# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser()
@@ -321,7 +306,6 @@ def main():
     _print_summary(study)
     save_study_plots(study, model_name="convlstm")
 
-
 def _print_summary(study: optuna.Study):
     trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
     if not trials:
@@ -338,7 +322,6 @@ def _print_summary(study: optuna.Study):
     for i, t in enumerate(sorted(trials, key=lambda t: t.value)[:5], 1):
         print(f"  {i}. RMSE={t.value:.4f}  " +
               "  ".join(f"{k}={v}" for k, v in t.params.items()))
-
 
 if __name__ == "__main__":
     main()

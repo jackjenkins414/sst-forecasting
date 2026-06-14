@@ -21,13 +21,11 @@ LOG_PATH     = PROJECT_ROOT / "experiments" / "preso_extras_log.txt"
 # alpha=0 only for models that *tuned* alpha; convlstm last (slowest, B=2).
 ALPHA0_MODELS = ["tubelet", "lstm", "informer", "convlstm"]
 
-
 def log(msg: str):
     line = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
     print(line, flush=True)
     with open(LOG_PATH, "a") as f:
         f.write(line + "\n")
-
 
 def run(cmd, label):
     log(f"START  {label}")
@@ -36,7 +34,6 @@ def run(cmd, label):
     dt = (time.time() - t0) / 60
     log(f"{'DONE ' if rc == 0 else 'FAILED'} {label} ({dt:.1f} min, exit {rc})")
     return rc == 0
-
 
 def main():
     py = sys.executable
@@ -58,7 +55,6 @@ def main():
     run([py, "-u", "scripts/compare_runs.py", "--final"], "final comparison (with patch)")
 
     log("=== Presentation extras complete ===")
-
 
 if __name__ == "__main__":
     main()

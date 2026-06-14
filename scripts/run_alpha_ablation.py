@@ -3,7 +3,7 @@ Post-search anomaly-alpha ablation.
 
 Finds the best HPO run for a given model, then re-trains it across a grid of
 anomaly_alpha values with EVERY other hyperparameter held fixed. This isolates
-the effect of anomaly weighting at the model's tuned optimum — answering
+the effect of anomaly weighting at the model's tuned optimum - answering
 "does anomaly weighting help this architecture?" as a controlled comparison
 (unlike the joint search, where alpha is confounded with the other params).
 
@@ -45,7 +45,6 @@ RESULTS_DIR = PROJECT_ROOT / "experiments/results"
 DEFAULT_ALPHAS = [0.0, 0.05, 0.10, 0.20]
 ALPHA_MAX = 0.20  # anomaly_alpha search-space ceiling
 
-
 def _auto_alpha_grid(optimal_alpha: float | None) -> list[float]:
     """Bracket the tuned optimum: {0, a/2, a, 2a}, clamped to [0, ALPHA_MAX], deduped.
 
@@ -58,10 +57,7 @@ def _auto_alpha_grid(optimal_alpha: float | None) -> list[float]:
     raw = [0.0, optimal_alpha / 2, optimal_alpha, min(2 * optimal_alpha, ALPHA_MAX)]
     return sorted({round(a, 4) for a in raw})
 
-
-# ---------------------------------------------------------------------------
-# Model builders — one per architecture, reading hyperparams from a config dict
-# ---------------------------------------------------------------------------
+# Model builders - one per architecture, reading hyperparams from a config dict
 
 def _build_lstm(config, H, W):
     from src.models.lstm import StackedSpatialLSTM
@@ -71,7 +67,6 @@ def _build_lstm(config, H, W):
         d_spatial=config["d_spatial"], hidden_size=config["hidden_size"],
         num_layers=config["num_layers"], dropout=config["dropout"],
     )
-
 
 def _build_informer(config, H, W):
     from src.models.informer import ProbSparseInformer
@@ -85,7 +80,6 @@ def _build_informer(config, H, W):
         factor=config["factor"], label_len=config["label_len"],
     )
 
-
 def _build_tubelet(config, H, W):
     from src.models.tubelet_transformer import TubeletTransformer
     return TubeletTransformer(
@@ -96,7 +90,6 @@ def _build_tubelet(config, H, W):
         t_s=config["t_s"], p_h=config["p_h"], p_w=config["p_w"],
         dropout=config["dropout"],
     )
-
 
 def _build_convlstm(config, H, W):
     from src.sst_forecasting.models.convlstm import SpatialConvLSTM
@@ -110,7 +103,6 @@ def _build_convlstm(config, H, W):
         kernel_size=config["kernel_size"], dropout=config["dropout"],
     )
 
-
 MODEL_BUILDERS = {
     "lstm":     _build_lstm,
     "informer": _build_informer,
@@ -118,10 +110,7 @@ MODEL_BUILDERS = {
     "convlstm": _build_convlstm,
 }
 
-
-# ---------------------------------------------------------------------------
 # Find the best (non-ablation) run for a model
-# ---------------------------------------------------------------------------
 
 def _infer_model_type(config: dict) -> str:
     """Identify model for runs predating the model_type key (e.g. old Tubelet)."""
@@ -136,7 +125,6 @@ def _infer_model_type(config: dict) -> str:
     if "ffn_dim" in config and "n_heads" in config:
         return "transformer"
     return "unknown"
-
 
 def find_best_config(model_type: str) -> dict:
     best = None
@@ -163,10 +151,7 @@ def find_best_config(model_type: str) -> dict:
           f"(alpha was {best.get('anomaly_alpha')})")
     return best
 
-
-# ---------------------------------------------------------------------------
 # Run the ablation
-# ---------------------------------------------------------------------------
 
 def run_ablation(model_type: str, alphas: list[float] | None = None):
     builder = MODEL_BUILDERS[model_type]
@@ -248,7 +233,6 @@ def run_ablation(model_type: str, alphas: list[float] | None = None):
     _plot_curve(model_type, results, base)
     return results
 
-
 def _plot_curve(model_type, results, base):
     alphas = [a for a, _ in results]
     rmses  = [r for _, r in results]
@@ -264,7 +248,7 @@ def _plot_curve(model_type, results, base):
                    alpha=0.6, label=f"α=0 baseline ({rmses[alphas.index(0.0)]:.4f})")
     ax.set_xlabel("anomaly_alpha")
     ax.set_ylabel("Test mean RMSE (°C)")
-    ax.set_title(f"Anomaly-α ablation — {model_type}\n"
+    ax.set_title(f"Anomaly-α ablation - {model_type}\n"
                  f"(all other hyperparams fixed at tuned optimum)")
     ax.legend()
     ax.grid(alpha=0.3)
@@ -273,7 +257,6 @@ def _plot_curve(model_type, results, base):
     plt.savefig(out, dpi=150, bbox_inches="tight")
     print(f"Saved: {out}")
     plt.close()
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -297,7 +280,6 @@ def main():
             d = rmse - base_rmse
             delta = f"  ({'+' if d >= 0 else ''}{d:.4f} vs α=0)"
         print(f"  alpha={alpha:.3f}: RMSE={rmse:.4f}{delta}")
-
 
 if __name__ == "__main__":
     main()

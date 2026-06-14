@@ -9,14 +9,7 @@ This matches the training setup: the model always operates on a 90-day context
 and produces a 7-day block, exactly as during training. Compare against the
 1-day-step variant (run_ar_rollout.py) which uses only day-1 per call.
 
-Reuses (no edits to committed code):
-  MODEL_BUILDERS, find_best_config  from scripts/retrain_best.py
-  SstWindowDataset                   from src/data/dataset.py
-  rmse_per_step, skill_score         from src/utils/metrics.py
-  persistence_forecast               from src/baselines/persistence.py
-
 Output directory: experiments/ar_rollout_7day/[seed<N>/]
-  Separate from ar_rollout/ (1-day step) so both sets of results coexist.
 
 Usage
 -----
@@ -61,10 +54,7 @@ DISPLAY = {
     "tubelet":           "Tubelet Transformer",
 }
 
-
-# ---------------------------------------------------------------------------
 # Core: load a model and run a 7-day-step AR rollout on a batch of contexts
-# ---------------------------------------------------------------------------
 
 def load_model(model_type: str, device: torch.device, H: int, W: int,
                seed: int | None = None):
@@ -76,7 +66,6 @@ def load_model(model_type: str, device: torch.device, H: int, W: int,
     model.eval()
     print(f"  loaded {model_type} from {best / 'model.pt'}")
     return model
-
 
 def autoregressive_predict(model, x: torch.Tensor, max_horizon: int,
                            device: torch.device) -> np.ndarray:
@@ -101,10 +90,7 @@ def autoregressive_predict(model, x: torch.Tensor, max_horizon: int,
     preds = torch.cat(chunks, dim=1)[:, :max_horizon]     # (B, max_horizon, H, W)
     return preds.cpu().numpy()
 
-
-# ---------------------------------------------------------------------------
 # Plot
-# ---------------------------------------------------------------------------
 
 def plot_ar(rmse: dict, skill: dict, useful: dict, max_h: int, out_path: Path):
     days = list(range(1, max_h + 1))
@@ -123,7 +109,7 @@ def plot_ar(rmse: dict, skill: dict, useful: dict, max_h: int, out_path: Path):
              fontsize=8, color="grey", style="italic", va="bottom")
     axL.set_xlabel("Forecast day")
     axL.set_ylabel(r"RMSE ($^\circ$C)")
-    axL.set_title("RMSE vs lead time — autoregressive rollout (7-day step)")
+    axL.set_title("RMSE vs lead time - autoregressive rollout (7-day step)")
     axL.legend(fontsize=9, loc="lower right")
     axL.grid(alpha=0.3)
 
@@ -149,20 +135,17 @@ def plot_ar(rmse: dict, skill: dict, useful: dict, max_h: int, out_path: Path):
 
     axR.set_xlabel("Forecast day")
     axR.set_ylabel("Skill vs climatology")
-    axR.set_title("Skill score — first crossing of zero is the useful horizon")
+    axR.set_title("Skill score - first crossing of zero is the useful horizon")
     axR.legend(fontsize=9, loc="upper right")
     axR.grid(alpha=0.3)
 
-    fig.suptitle("Autoregressive rollout (7-day step) — how far can we predict?",
+    fig.suptitle("Autoregressive rollout (7-day step) - how far can we predict?",
                  fontsize=13, fontweight="bold", y=1.02)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close()
 
-
-# ---------------------------------------------------------------------------
 # Main
-# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser()
@@ -285,7 +268,6 @@ def main():
             out_dir / "ar_long_horizon.png")
     print(f"\nOutputs written to {out_dir}")
     print(f"Useful horizons: {useful}")
-
 
 if __name__ == "__main__":
     main()

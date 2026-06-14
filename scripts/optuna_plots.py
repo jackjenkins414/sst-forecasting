@@ -16,7 +16,6 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR      = PROJECT_ROOT / "experiments"
 
-
 def save_study_plots(study, model_name: str) -> None:
     """Save optimisation history, param importance, and parallel coordinates."""
     try:
@@ -27,14 +26,14 @@ def save_study_plots(study, model_name: str) -> None:
             plot_parallel_coordinate,
         )
     except ImportError:
-        print("plotly / kaleido not installed — skipping Optuna plots. "
+        print("plotly / kaleido not installed - skipping Optuna plots. "
               "Run: pip install plotly kaleido")
         return
 
     completed = [t for t in study.trials
                  if t.state.name == "COMPLETE"]
     if len(completed) < 2:
-        print("Not enough completed trials to plot — skipping.")
+        print("Not enough completed trials to plot - skipping.")
         return
 
     plots = {

@@ -48,9 +48,7 @@ from src.utils.metrics import rmse_per_step, skill_score
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-# ---------------------------------------------------------------------------
-# Fixed — not part of the search
-# ---------------------------------------------------------------------------
+# Fixed - not part of the search
 
 ZARR_PATH   = PROJECT_ROOT / "data/processed/oisst_coralsea.zarr"
 RESULTS_DIR = PROJECT_ROOT / "experiments/results"
@@ -58,28 +56,26 @@ DB_PATH     = PROJECT_ROOT / "experiments/optuna_study.db"
 
 CONTEXT_LEN         = 90
 HORIZON             = 7
-BATCH_SIZE          = 8   # halved from 16 — gives deeper trials headroom on 12 GB VRAM
+BATCH_SIZE          = 8   # halved from 16 - gives deeper trials headroom on 12 GB VRAM
 D_MODEL             = 128
 D_FF                = 512
 T_S                 = 5
-P_H                 = 3   # fine patches — ablation proved this is better
+P_H                 = 3   # fine patches - ablation proved this is better
 P_W                 = 11
 NUM_EPOCHS          = 50
-EARLY_STOP_PATIENCE = 5   # fixed — keeps all trials comparable in length
+EARLY_STOP_PATIENCE = 5   # fixed - keeps all trials comparable in length
 RANDOM_SEED         = 42
 
-# ---------------------------------------------------------------------------
-# Search space — edit ranges here to change what Optuna explores
-# ---------------------------------------------------------------------------
+# Search space - edit ranges here to change what Optuna explores
 #
-# FloatDistribution(low, high, log=True)  — good for LR (spans orders of magnitude)
-# FloatDistribution(low, high)            — linear range
-# IntDistribution(low, high)             — integers inclusive
-# CategoricalDistribution([a, b, c])     — discrete choices
+# FloatDistribution(low, high, log=True)  - good for LR (spans orders of magnitude)
+# FloatDistribution(low, high)            - linear range
+# IntDistribution(low, high)             - integers inclusive
+# CategoricalDistribution([a, b, c])     - discrete choices
 #
 # n_heads must divide d_model evenly.
-# d_model=128: valid heads = 4, 8, 16   (16 gives only 8 dims/head — narrow but ok)
-# d_model=256: valid heads = 8, 16      (16 gives 16 dims/head — meaningful)
+# d_model=128: valid heads = 4, 8, 16   (16 gives only 8 dims/head - narrow but ok)
+# d_model=256: valid heads = 8, 16      (16 gives 16 dims/head - meaningful)
 
 SEARCH_SPACE = {
     "lr":       FloatDistribution(3e-4, 1.5e-3, log=True), # best runs clustered ~7e-4
@@ -91,10 +87,7 @@ SEARCH_SPACE = {
     "dropout":  FloatDistribution(0.15, 0.30),              # best runs ~0.20
 }
 
-
-# ---------------------------------------------------------------------------
 # Seed study with previous runs
-# ---------------------------------------------------------------------------
 
 def _params_from_config(config: dict) -> dict | None:
     """Extract search-space params from a saved config.json.
@@ -122,7 +115,6 @@ def _params_from_config(config: dict) -> dict | None:
                 return None
 
     return mapping
-
 
 def load_previous_runs(study: optuna.Study) -> int:
     """Inject existing run results into the study as completed trials."""
@@ -158,10 +150,7 @@ def load_previous_runs(study: optuna.Study) -> int:
 
     return loaded
 
-
-# ---------------------------------------------------------------------------
 # Objective
-# ---------------------------------------------------------------------------
 
 def make_objective(root, land_mask_np, lat, lon, norm_mean, norm_std,
                    train_loader, val_loader, test_loader, device):
@@ -178,7 +167,7 @@ def make_objective(root, land_mask_np, lat, lon, norm_mean, norm_std,
         alpha     = trial.suggest_float("alpha", SEARCH_SPACE["alpha"].low, SEARCH_SPACE["alpha"].high)
         dropout   = trial.suggest_float("dropout", SEARCH_SPACE["dropout"].low, SEARCH_SPACE["dropout"].high)
 
-        # n_heads must divide d_model — skip invalid combos
+        # n_heads must divide d_model - skip invalid combos
         if d_model % n_heads != 0:
             raise optuna.exceptions.TrialPruned()
 
@@ -213,7 +202,7 @@ def make_objective(root, land_mask_np, lat, lon, norm_mean, norm_std,
             threshold=1e-3, min_lr=1e-5, cooldown=2,
         )
 
-        # Pruning callback — reports val loss each epoch; Optuna kills bad trials early
+        # Pruning callback - reports val loss each epoch; Optuna kills bad trials early
         def epoch_callback(epoch, val_loss):
             trial.report(val_loss, epoch)
             return trial.should_prune()
@@ -253,7 +242,6 @@ def make_objective(root, land_mask_np, lat, lon, norm_mean, norm_std,
 
     return objective
 
-
 def _dist_kwargs(dist) -> dict:
     """Convert a distribution object to suggest_float keyword args."""
     kwargs = {"name": None, "low": dist.low, "high": dist.high}
@@ -261,10 +249,7 @@ def _dist_kwargs(dist) -> dict:
         kwargs["log"] = True
     return {k: v for k, v in kwargs.items() if k != "name"}
 
-
-# ---------------------------------------------------------------------------
 # Main
-# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser()
@@ -292,7 +277,7 @@ def main():
         _print_summary(study)
         return
 
-    # Load data once — shared across all trials
+    # Load data once - shared across all trials
     root         = zarr.open_group(str(ZARR_PATH), mode="r")
     norm_mean    = float(root.attrs["norm_mean"])
     norm_std     = float(root.attrs["norm_std"])
@@ -320,7 +305,6 @@ def main():
     _print_summary(study)
     save_study_plots(study, model_name="tubelet")
 
-
 def _print_summary(study: optuna.Study):
     trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
     if not trials:
@@ -340,7 +324,6 @@ def _print_summary(study: optuna.Study):
     for i, t in enumerate(top, 1):
         print(f"  {i}. RMSE={t.value:.4f}  " +
               "  ".join(f"{k}={v}" for k, v in t.params.items()))
-
 
 if __name__ == "__main__":
     main()
