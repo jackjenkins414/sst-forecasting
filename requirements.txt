@@ -1,0 +1,19 @@
+# Python 3.10+ required (codebase uses `int | None` union syntax).
+#
+#  Core: training, evaluation, plotting (works today)
+torch>=2.1
+numpy>=1.24
+pandas>=2.0
+zarr<3            # store is zarr v2; zarr 3.x changes the group API and breaks the loaders
+matplotlib>=3.7
+optuna>=3.4       # hyperparameter search (run_optuna_*.py)
+plotly>=5.18      # Optuna study figures (scripts/optuna_plots.py)
+kaleido>=0.2      # static PNG export for the plotly figures
+PyYAML>=6.0       # config parsing
+
+# Data pipeline: download + build the Zarr store 
+# Only needed to regenerate data from scratch (scripts/download_oisst.py,
+# scripts/build_zarr.py, scripts/validate_pipeline.py).
+xarray>=2023.1
+netCDF4>=1.6      # read OISST NetCDF files
+requests>=2.28    # ERDDAP smoke-test in validate_pipeline.py
