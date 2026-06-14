@@ -15,7 +15,11 @@ This document records each group member's use of generative AI tools during the 
 ## Per-member statements
 
 ### Jack Jenkins (u7333800)
-_[to complete]_
+I used Claude (the chat interface) to assist with the coding of my model files and for debugging. Where it contributed to a non-trivial design choice, I flagged this inline in the
+source (e.g. the GenAI reference note in `SpaceTimePositionalEncoding` on using reshapes to apply positional encoding along the correct axis). I verified its suggestions myself rather
+than taking them on trust: I sanity checked tensor shapes against the expected contract at each boundary (e.g. confirming the patch projection produced `(2, 90, 99, 128)` and that
+positional encoding preserved this shape and added no trainable parameters), and fixed bugs it did not catch (e.g. instantiating `nn.Dropout` as a module rather than passing a float). When building `transformer` from the reference source, I also used it to confirm my implementation changes were correct, in particular that the boundary components I modified
+for the SST setting were sound while the domain-agnostic blocks (attention, FFN) were carried across faithfully. All architectural decisions and the final implementations are my own.
 
 ### Ayush Samuel (u7508601)
 _[to complete]_
